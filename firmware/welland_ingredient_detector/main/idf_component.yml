@@ -1,0 +1,5 @@
+dependencies:
+  espressif/esp-dl:
+    version: "3.3.8"
+  espressif/esp32-camera:
+    version: "2.1.6"

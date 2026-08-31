@@ -1,0 +1,137 @@
+{
+  "generated_at": "2026-08-24T12:00:45.023891+08:00",
+  "board_endpoint": "http://172.17.4.66/validate",
+  "dataset": "D:\\ESP-Project\\20260729ESP-DET\\datasets\\welland-v04-espdet-pico\\welland-v04-grouped.yaml",
+  "split": "val",
+  "images_evaluated": 1371,
+  "warmup_inferences": 3,
+  "wall_seconds": 1441.742281600018,
+  "note": "Metrics use the production firmware score/NMS thresholds.",
+  "accuracy": {
+    "precision_at_iou50": 0.9270544783010157,
+    "recall_at_iou50": 0.9219467401285583,
+    "map50": 0.9136411141408756,
+    "map50_95": 0.8082882480908272,
+    "per_class": [
+      {
+        "class_id": 0,
+        "class_name": "apple",
+        "ground_truth": 127,
+        "predictions": 148,
+        "precision_at_iou50": 0.8581081081081081,
+        "recall_at_iou50": 1.0,
+        "map50": 0.9907556109941703,
+        "map50_95": 0.8905050842424294
+      },
+      {
+        "class_id": 1,
+        "class_name": "strawberry",
+        "ground_truth": 163,
+        "predictions": 83,
+        "precision_at_iou50": 1.0,
+        "recall_at_iou50": 0.50920245398773,
+        "map50": 0.504950495049505,
+        "map50_95": 0.418264010264987
+      },
+      {
+        "class_id": 2,
+        "class_name": "cherry tomato",
+        "ground_truth": 160,
+        "predictions": 170,
+        "precision_at_iou50": 0.9294117647058824,
+        "recall_at_iou50": 0.9875,
+        "map50": 0.9574505818110948,
+        "map50_95": 0.81598380291364
+      },
+      {
+        "class_id": 3,
+        "class_name": "chicken breast",
+        "ground_truth": 154,
+        "predictions": 188,
+        "precision_at_iou50": 0.8191489361702128,
+        "recall_at_iou50": 1.0,
+        "map50": 0.9767360173818341,
+        "map50_95": 0.8882369386665239
+      },
+      {
+        "class_id": 4,
+        "class_name": "banana",
+        "ground_truth": 165,
+        "predictions": 166,
+        "precision_at_iou50": 0.9819277108433735,
+        "recall_at_iou50": 0.9878787878787879,
+        "map50": 0.9798379837983797,
+        "map50_95": 0.8537909220610157
+      },
+      {
+        "class_id": 5,
+        "class_name": "egg",
+        "ground_truth": 160,
+        "predictions": 164,
+        "precision_at_iou50": 0.9695121951219512,
+        "recall_at_iou50": 0.99375,
+        "map50": 0.985998597514536,
+        "map50_95": 0.8665610053168911
+      },
+      {
+        "class_id": 6,
+        "class_name": "Lettuce",
+        "ground_truth": 160,
+        "predictions": 164,
+        "precision_at_iou50": 0.975609756097561,
+        "recall_at_iou50": 1.0,
+        "map50": 0.9997585124366094,
+        "map50_95": 0.9246759731703035
+      }
+    ]
+  },
+  "latency": {
+    "preprocess_ms": {
+      "mean": 25.959639679066374,
+      "p50": 25.95,
+      "p90": 26.033,
+      "p95": 26.079,
+      "min": 25.856,
+      "max": 26.267
+    },
+    "inference_ms": {
+      "mean": 395.30300072939457,
+      "p50": 395.253,
+      "p90": 396.128,
+      "p95": 396.319,
+      "min": 394.02,
+      "max": 397.196
+    },
+    "postprocess_ms": {
+      "mean": 2.4037410649161197,
+      "p50": 2.462,
+      "p90": 2.517,
+      "p95": 2.542,
+      "min": 2.134,
+      "max": 2.683
+    },
+    "total_ms": {
+      "mean": 423.66638147337704,
+      "p50": 423.617,
+      "p90": 424.488,
+      "p95": 424.698,
+      "min": 422.328,
+      "max": 425.576
+    }
+  },
+  "memory": {
+    "model_memory_bytes": {
+      "internal": 26976,
+      "psram": 1623748,
+      "flash": 499056
+    },
+    "minimum_observed": {
+      "internal_free_after": 96371,
+      "internal_min_free": 81887,
+      "internal_largest_after": 31744,
+      "psram_free_after": 5104332,
+      "psram_min_free": 5104304,
+      "psram_largest_after": 4718592
+    }
+  }
+}

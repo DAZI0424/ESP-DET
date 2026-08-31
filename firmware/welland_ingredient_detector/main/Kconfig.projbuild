@@ -1,0 +1,355 @@
+menu "Welland GC2145 ingredient detector"
+
+    config WELLAND_CAM_PIN_PWDN
+        int "Camera PWDN GPIO (-1 if unused)"
+        range -1 48
+        default -1
+
+    config WELLAND_CAM_PIN_RESET
+        int "Camera RESET GPIO (-1 if unused)"
+        range -1 48
+        default -1
+
+    config WELLAND_CAM_PIN_XCLK
+        int "Camera XCLK GPIO"
+        range 0 48
+        default 15
+
+    config WELLAND_CAM_PIN_SIOD
+        int "Camera SCCB SIOD/SDA GPIO"
+        range 0 48
+        default 4
+
+    config WELLAND_CAM_PIN_SIOC
+        int "Camera SCCB SIOC/SCL GPIO"
+        range 0 48
+        default 5
+
+    config WELLAND_CAM_PIN_D0
+        int "Camera D0 GPIO"
+        range 0 48
+        default 11
+
+    config WELLAND_CAM_PIN_D1
+        int "Camera D1 GPIO"
+        range 0 48
+        default 9
+
+    config WELLAND_CAM_PIN_D2
+        int "Camera D2 GPIO"
+        range 0 48
+        default 8
+
+    config WELLAND_CAM_PIN_D3
+        int "Camera D3 GPIO"
+        range 0 48
+        default 10
+
+    config WELLAND_CAM_PIN_D4
+        int "Camera D4 GPIO"
+        range 0 48
+        default 12
+
+    config WELLAND_CAM_PIN_D5
+        int "Camera D5 GPIO"
+        range 0 48
+        default 18
+
+    config WELLAND_CAM_PIN_D6
+        int "Camera D6 GPIO"
+        range 0 48
+        default 17
+
+    config WELLAND_CAM_PIN_D7
+        int "Camera D7 GPIO"
+        range 0 48
+        default 16
+
+    config WELLAND_CAM_PIN_VSYNC
+        int "Camera VSYNC GPIO"
+        range 0 48
+        default 6
+
+    config WELLAND_CAM_PIN_HREF
+        int "Camera HREF GPIO"
+        range 0 48
+        default 7
+
+    config WELLAND_CAM_PIN_PCLK
+        int "Camera PCLK GPIO"
+        range 0 48
+        default 13
+
+    config WELLAND_CAM_XCLK_MHZ
+        int "Camera XCLK frequency (MHz)"
+        range 10 24
+        default 10
+
+    config WELLAND_CAM_HMIRROR
+        bool "Mirror RGB565 camera frames horizontally in software"
+        default y
+        help
+            Swap pixels from left to right on Core 0 after each frame is
+            captured. The GC2145 hardware mirror remains disabled so the
+            software mirror is applied exactly once to preview, AI and capture.
+
+    config WELLAND_CAM_VFLIP
+        bool "Flip camera image vertically"
+        default n
+
+    config WELLAND_CAM_AWB_GRAY_WORLD
+        bool "Enable GC2145 gray-world AWB mode"
+        default y
+        help
+            Helps compensate a consistent green or magenta cast. Disable this
+            if a strongly colored object fills nearly the entire frame and the
+            automatic white balance becomes unstable.
+
+    config WELLAND_CAM_AEC_TARGET
+        int "GC2145 automatic exposure luma target"
+        range 32 80
+        default 68
+        help
+            The GC2145 reference profile uses 68 for a brighter image. Check
+            reflective and white ingredients for highlight clipping after
+            changing the installation lighting.
+
+    config WELLAND_CAM_WARMUP_FRAMES
+        int "Frames discarded while AWB/AEC settle"
+        range 0 60
+        default 12
+        help
+            Frames captured and discarded before inference and the GUI become
+            ready. Twelve frames take roughly 1.5 seconds at the current rate.
+
+    config WELLAND_CAM_STA_SSID
+        string "Wi-Fi name"
+        default "guest"
+
+    config WELLAND_CAM_STA_PASSWORD
+        string "Wi-Fi password"
+        default "4001389908"
+
+    config WELLAND_CAM_AP_SSID
+        string "Fallback access point name"
+        default "GC2145-CAM"
+
+    config WELLAND_CAM_AP_PASSWORD
+        string "Fallback access point password"
+        default "gc2145cam"
+
+    config WELLAND_CAM_JPEG_QUALITY
+        int "MJPEG quality"
+        range 30 90
+        default 70
+
+    config WELLAND_DETECTION_SCORE_PERCENT
+        int "Detection score threshold (percent)"
+        range 1 99
+        default 75
+
+    config WELLAND_DETECTION_NMS_PERCENT
+        int "Detection NMS IoU threshold (percent)"
+        range 1 99
+        default 70
+
+    menu "Recognition quality and sequential decision"
+
+        config WELLAND_RECOGNITION_SINGLE_HIGH_PERCENT
+            int "Single-frame immediate-lock Top-1 threshold (percent)"
+            range 1 99
+            default 92
+
+        config WELLAND_RECOGNITION_SINGLE_MARGIN_PERCENT
+            int "Single-frame Top-1 minus Top-2 margin (percent)"
+            range 1 99
+            default 18
+
+        config WELLAND_RECOGNITION_MULTI_EVIDENCE_PERCENT
+            int "Two-frame normalized weighted evidence threshold (percent)"
+            range 1 99
+            default 85
+
+        config WELLAND_RECOGNITION_MULTI_MARGIN_PERCENT
+            int "Two-frame normalized evidence Top-1 minus Top-2 margin (percent)"
+            range 1 99
+            default 15
+
+        config WELLAND_RECOGNITION_CLASS_APPLE_PERCENT
+            int "Apple minimum normalized evidence (percent)"
+            range 1 99
+            default 80
+
+        config WELLAND_RECOGNITION_CLASS_STRAWBERRY_PERCENT
+            int "Strawberry minimum normalized evidence (percent)"
+            range 1 99
+            default 80
+
+        config WELLAND_RECOGNITION_CLASS_CHERRY_TOMATO_PERCENT
+            int "Cherry tomato minimum normalized evidence (percent)"
+            range 1 99
+            default 80
+
+        config WELLAND_RECOGNITION_CLASS_BANANA_PERCENT
+            int "Banana minimum normalized evidence (percent)"
+            range 1 99
+            default 80
+
+        config WELLAND_RECOGNITION_CLASS_EGG_PERCENT
+            int "Egg minimum normalized evidence (percent)"
+            range 1 99
+            default 80
+
+        config WELLAND_RECOGNITION_CLASS_LETTUCE_PERCENT
+            int "Lettuce minimum normalized evidence (percent)"
+            range 1 99
+            default 80
+
+        config WELLAND_RECOGNITION_MAX_VALID_INFERENCES
+            int "Maximum valid inferences before forced output"
+            range 3 3
+            default 3
+
+        config WELLAND_RECOGNITION_TARGET_MISSING_VALID_FRAMES
+            int "Valid no-target frames before evidence reset"
+            range 1 4
+            default 1
+
+        config WELLAND_QUALITY_MOTION_MAX_PERMILLE
+            int "ROI motion threshold for entering stable state (permille)"
+            range 1 500
+            default 45
+
+        config WELLAND_QUALITY_MOTION_EXIT_PERMILLE
+            int "ROI motion threshold for leaving stable state (permille)"
+            range 2 1000
+            default 80
+
+        config WELLAND_QUALITY_STABLE_FRAMES_REQUIRED
+            int "Consecutive low-motion ROI frames required before inference"
+            range 1 5
+            default 2
+
+        config WELLAND_QUALITY_PRESENTATION_ROI_PERCENT
+            int "Centered presentation ROI width and height (percent)"
+            range 30 100
+            default 70
+
+        config WELLAND_QUALITY_TARGET_ROI_EXPAND_PERCENT
+            int "Target ROI expansion on each side (percent of target size)"
+            range 0 100
+            default 20
+
+        config WELLAND_QUALITY_SCENE_CHANGE_PIXEL_DELTA
+            int "Per-sample luma delta counted as a global scene change"
+            range 1 255
+            default 32
+
+        config WELLAND_QUALITY_SCENE_CHANGE_CHANGED_PERMILLE
+            int "Changed global samples required for scene reset (permille)"
+            range 1 1000
+            default 600
+
+        config WELLAND_QUALITY_SCENE_CHANGE_REQUIRED_FRAMES
+            int "Consecutive broad scene-change frames required for reset"
+            range 1 5
+            default 2
+
+        config WELLAND_QUALITY_SHARPNESS_MIN
+            int "Minimum accepted sampled Laplacian sharpness"
+            range 1 1020
+            default 20
+
+        config WELLAND_QUALITY_SHARPNESS_GOOD
+            int "Full-quality sampled Laplacian sharpness"
+            range 2 1020
+            default 80
+
+        config WELLAND_QUALITY_EXPOSURE_MEAN_MIN
+            int "Minimum accepted mean luma"
+            range 0 254
+            default 35
+
+        config WELLAND_QUALITY_EXPOSURE_MEAN_MAX
+            int "Maximum accepted mean luma"
+            range 1 255
+            default 220
+
+        config WELLAND_QUALITY_DARK_LUMA_MAX
+            int "Dark-clipped luma upper bound"
+            range 0 127
+            default 8
+
+        config WELLAND_QUALITY_BRIGHT_LUMA_MIN
+            int "Bright-clipped luma lower bound"
+            range 128 255
+            default 247
+
+        config WELLAND_QUALITY_CLIPPED_MAX_PERMILLE
+            int "Maximum combined dark/bright clipped samples (permille)"
+            range 1 1000
+            default 200
+
+        config WELLAND_QUALITY_WEIGHT_FLOOR_PERMILLE
+            int "Minimum quality weight for an accepted frame (permille)"
+            range 1 1000
+            default 500
+
+        config WELLAND_RECOGNITION_BOX_MIN_AREA_PERMILLE
+            int "Minimum target-box area relative to 224x224 (permille)"
+            range 1 999
+            default 30
+
+        config WELLAND_RECOGNITION_BOX_MAX_AREA_PERMILLE
+            int "Maximum target-box area relative to 224x224 (permille)"
+            range 2 1000
+            default 850
+
+        config WELLAND_RECOGNITION_BOX_MIN_SIDE_PIXELS
+            int "Minimum target-box side length (pixels)"
+            range 1 224
+            default 22
+
+        config WELLAND_RECOGNITION_BOX_MAX_ASPECT_PERMILLE
+            int "Maximum target-box aspect ratio (permille)"
+            range 1000 10000
+            default 4000
+
+        config WELLAND_RECOGNITION_CONSISTENCY_IOU_PERMILLE
+            int "Minimum consecutive target-box IoU (permille)"
+            range 0 1000
+            default 150
+
+        config WELLAND_RECOGNITION_CONSISTENCY_CENTER_SHIFT_PERMILLE
+            int "Maximum consecutive target center shift (permille of frame)"
+            range 1 1000
+            default 220
+
+        config WELLAND_RECOGNITION_CONSISTENCY_AREA_MIN_PERMILLE
+            int "Minimum consecutive target area ratio (permille)"
+            range 1 1000
+            default 500
+
+        config WELLAND_RECOGNITION_CONSISTENCY_AREA_MAX_PERMILLE
+            int "Maximum consecutive target area ratio (permille)"
+            range 1000 10000
+            default 2000
+
+        config WELLAND_RECOGNITION_OBVIOUS_SWITCH_PERCENT
+            int "Obvious item-switch Top-1 confidence (percent)"
+            range 1 99
+            default 90
+
+        config WELLAND_RECOGNITION_OBVIOUS_SWITCH_MARGIN_PERCENT
+            int "Obvious item-switch Top-1 minus Top-2 margin (percent)"
+            range 1 99
+            default 25
+
+        config WELLAND_RECOGNITION_SESSION_TIMEOUT_MS
+            int "Unconfirmed recognition session timeout (ms)"
+            range 1000 60000
+            default 8000
+
+    endmenu
+
+endmenu

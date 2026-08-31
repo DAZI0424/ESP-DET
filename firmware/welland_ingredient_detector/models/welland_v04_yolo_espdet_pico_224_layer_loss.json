@@ -1,0 +1,820 @@
+{
+  "metric": "noise_power / signal_power at the six model outputs",
+  "interpretation": "lower is better; each row enables only that operation's quantization",
+  "analysis_batches": 16,
+  "analysis_images_max": 128,
+  "large_loss_threshold_ratio": 0.01,
+  "large_loss_threshold_percent": 1.0,
+  "quantized_computing_layers": 101,
+  "large_loss_layers": 0,
+  "layers": [
+    {
+      "operation": "/model.1/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 0.009318447636663525,
+      "snr_loss_percent": 0.9318447636663525,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.1/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 0.0010171016732935332,
+      "snr_loss_percent": 0.10171016732935331,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.0/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 0.0006147377860846365,
+      "snr_loss_percent": 0.06147377860846365,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.2/m.0/cv1/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 0.0004618100217612664,
+      "snr_loss_percent": 0.04618100217612664,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.2/m.0/cv2/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 0.00044969361366990285,
+      "snr_loss_percent": 0.044969361366990285,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.4/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 0.00033078778856558217,
+      "snr_loss_percent": 0.033078778856558216,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.2/m.0/cv1/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 0.0003257257539341178,
+      "snr_loss_percent": 0.03257257539341178,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.3/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 0.00030858456642590687,
+      "snr_loss_percent": 0.03085845664259069,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.2/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 0.0002690097071536001,
+      "snr_loss_percent": 0.02690097071536001,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.2/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 0.00023237310851224416,
+      "snr_loss_percent": 0.023237310851224414,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.2/m.0/cv2/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 0.0001444004907303527,
+      "snr_loss_percent": 0.014440049073035269,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.4/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 0.00012236595442990014,
+      "snr_loss_percent": 0.012236595442990014,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.16/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 9.603272337699309e-05,
+      "snr_loss_percent": 0.009603272337699309,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv3.1/cv3.1.1/cv3.1.1.0/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 6.200584842493605e-05,
+      "snr_loss_percent": 0.006200584842493605,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.3/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 5.305414772275676e-05,
+      "snr_loss_percent": 0.005305414772275676,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.16/m.0/cv2/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 5.1219048692985325e-05,
+      "snr_loss_percent": 0.0051219048692985325,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.16/m.0/cv1/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 5.0729437601167625e-05,
+      "snr_loss_percent": 0.005072943760116763,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv3.1/cv3.1.0/cv3.1.0.1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 3.3984585115831565e-05,
+      "snr_loss_percent": 0.0033984585115831565,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.4/m.0/cv2/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 3.214868378383548e-05,
+      "snr_loss_percent": 0.003214868378383548,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.6/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 3.122423575045254e-05,
+      "snr_loss_percent": 0.0031224235750452536,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.6/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 3.109199041754587e-05,
+      "snr_loss_percent": 0.003109199041754587,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv2.0/cv2.0.0/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 2.7508170812022087e-05,
+      "snr_loss_percent": 0.0027508170812022086,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.16/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 2.7214260367003362e-05,
+      "snr_loss_percent": 0.0027214260367003362,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.5/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 2.715900377362838e-05,
+      "snr_loss_percent": 0.0027159003773628383,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.13/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 2.68566537648951e-05,
+      "snr_loss_percent": 0.00268566537648951,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.13/m.0/cv1/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 2.4889261441766546e-05,
+      "snr_loss_percent": 0.002488926144176655,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.9/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 2.3577788314336583e-05,
+      "snr_loss_percent": 0.0023577788314336585,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv2.0/cv2.0.2/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 2.2786734765152996e-05,
+      "snr_loss_percent": 0.0022786734765152996,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.19/m.0/cv1/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 2.112794876533523e-05,
+      "snr_loss_percent": 0.002112794876533523,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.10/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 2.0751155503262453e-05,
+      "snr_loss_percent": 0.0020751155503262453,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.16/m.0/cv2/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 2.0357390596359437e-05,
+      "snr_loss_percent": 0.0020357390596359437,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv2.1/cv2.1.2/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.9223143150763157e-05,
+      "snr_loss_percent": 0.0019223143150763158,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.4/m.0/cv1/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.8788405173590178e-05,
+      "snr_loss_percent": 0.0018788405173590177,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.5/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.7414281622052375e-05,
+      "snr_loss_percent": 0.0017414281622052375,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.19/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.5846965221536873e-05,
+      "snr_loss_percent": 0.0015846965221536873,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.4/m.0/cv1/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.5190089523997585e-05,
+      "snr_loss_percent": 0.0015190089523997585,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv2.0/cv2.0.1/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.4783442187156956e-05,
+      "snr_loss_percent": 0.0014783442187156957,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.19/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.4661556813659141e-05,
+      "snr_loss_percent": 0.001466155681365914,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.19/m.0/cv2/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.3748003479937173e-05,
+      "snr_loss_percent": 0.0013748003479937174,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.9/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.3709450270719495e-05,
+      "snr_loss_percent": 0.0013709450270719494,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.8/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.3129162790429897e-05,
+      "snr_loss_percent": 0.0013129162790429896,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv3.0/cv3.0.2/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.280306613201295e-05,
+      "snr_loss_percent": 0.001280306613201295,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv3.1/cv3.1.2/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.2776388227090743e-05,
+      "snr_loss_percent": 0.0012776388227090743,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.6/m.0/m/m.0/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.1453792209792368e-05,
+      "snr_loss_percent": 0.0011453792209792368,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv2.2/cv2.2.2/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.096247069654055e-05,
+      "snr_loss_percent": 0.001096247069654055,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.13/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.0780173509417073e-05,
+      "snr_loss_percent": 0.0010780173509417072,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.17/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.0681951399268044e-05,
+      "snr_loss_percent": 0.0010681951399268044,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.4/m.0/cv2/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.0090928680502499e-05,
+      "snr_loss_percent": 0.0010090928680502498,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.13/m.0/cv2/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 9.109398517873997e-06,
+      "snr_loss_percent": 0.0009109398517873997,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv2.0/cv2.0.1/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 8.768622971426032e-06,
+      "snr_loss_percent": 0.0008768622971426032,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.22/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 8.277558398125018e-06,
+      "snr_loss_percent": 0.0008277558398125018,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.17/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 8.261475038295883e-06,
+      "snr_loss_percent": 0.0008261475038295882,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv3.0/cv3.0.0/cv3.0.0.1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 8.109646690475826e-06,
+      "snr_loss_percent": 0.0008109646690475826,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.16/m.0/cv1/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 7.777560578089057e-06,
+      "snr_loss_percent": 0.0007777560578089057,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv2.1/cv2.1.0/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 7.331484880523931e-06,
+      "snr_loss_percent": 0.0007331484880523931,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.13/m.0/cv2/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 6.37542490918482e-06,
+      "snr_loss_percent": 0.0006375424909184819,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv3.1/cv3.1.1/cv3.1.1.1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 6.363632148046842e-06,
+      "snr_loss_percent": 0.0006363632148046843,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv2.1/cv2.1.1/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 6.335458048548996e-06,
+      "snr_loss_percent": 0.0006335458048548996,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.10/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 6.3073797775814455e-06,
+      "snr_loss_percent": 0.0006307379777581446,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv3.0/cv3.0.0/cv3.0.0.0/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 6.225873448784114e-06,
+      "snr_loss_percent": 0.0006225873448784114,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.8/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 6.073169294277629e-06,
+      "snr_loss_percent": 0.0006073169294277629,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.13/m.0/cv1/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 5.562349159345577e-06,
+      "snr_loss_percent": 0.0005562349159345577,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv2.0/cv2.0.0/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 5.48612426124843e-06,
+      "snr_loss_percent": 0.0005486124261248431,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv3.1/cv3.1.0/cv3.1.0.0/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 5.099500356209323e-06,
+      "snr_loss_percent": 0.0005099500356209323,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.6/m.0/cv3/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 4.96866466074645e-06,
+      "snr_loss_percent": 0.000496866466074645,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.19/m.0/cv2/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 4.805404470194695e-06,
+      "snr_loss_percent": 0.0004805404470194695,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv2.1/cv2.1.1/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 4.67742088024655e-06,
+      "snr_loss_percent": 0.000467742088024655,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.19/m.0/cv1/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 4.393231637441393e-06,
+      "snr_loss_percent": 0.0004393231637441393,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.22/m.0/cv1/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 4.241852764153009e-06,
+      "snr_loss_percent": 0.0004241852764153009,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.6/m.0/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 3.978259401608379e-06,
+      "snr_loss_percent": 0.0003978259401608379,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv3.0/cv3.0.1/cv3.0.1.1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 3.942138922260104e-06,
+      "snr_loss_percent": 0.0003942138922260104,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.7/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 3.8003189928304e-06,
+      "snr_loss_percent": 0.00038003189928304,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv3.2/cv3.2.2/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 3.6340727547212737e-06,
+      "snr_loss_percent": 0.00036340727547212737,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.20/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 3.3294823111873484e-06,
+      "snr_loss_percent": 0.00033294823111873484,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv3.2/cv3.2.0/cv3.2.0.1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 3.130231921962453e-06,
+      "snr_loss_percent": 0.0003130231921962453,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv3.2/cv3.2.1/cv3.2.1.0/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 3.089667785616257e-06,
+      "snr_loss_percent": 0.0003089667785616257,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.7/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 3.028971840161414e-06,
+      "snr_loss_percent": 0.0003028971840161414,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv2.2/cv2.2.0/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 2.315425073599424e-06,
+      "snr_loss_percent": 0.00023154250735994242,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.22/m.0/cv2/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 2.2383349621198554e-06,
+      "snr_loss_percent": 0.00022383349621198553,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.6/m.0/m/m.0/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.937026436730586e-06,
+      "snr_loss_percent": 0.0001937026436730586,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv2.2/cv2.2.1/pointwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.8649292504354282e-06,
+      "snr_loss_percent": 0.0001864929250435428,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.6/m.0/m/m.1/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.802468336216852e-06,
+      "snr_loss_percent": 0.0001802468336216852,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.22/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.6430761865156758e-06,
+      "snr_loss_percent": 0.00016430761865156757,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv2.2/cv2.2.1/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.5600348604039027e-06,
+      "snr_loss_percent": 0.00015600348604039027,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.8/m.0/m/m.0/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.5332874168845951e-06,
+      "snr_loss_percent": 0.0001533287416884595,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv3.2/cv3.2.1/cv3.2.1.1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.4982339280322776e-06,
+      "snr_loss_percent": 0.00014982339280322776,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.8/m.0/m/m.0/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.4023207863071245e-06,
+      "snr_loss_percent": 0.00014023207863071246,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv2.1/cv2.1.0/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.2679349860415343e-06,
+      "snr_loss_percent": 0.00012679349860415343,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv3.0/cv3.0.1/cv3.0.1.0/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.157960667796942e-06,
+      "snr_loss_percent": 0.0001157960667796942,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.6/m.0/m/m.1/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.0198369400082894e-06,
+      "snr_loss_percent": 0.00010198369400082893,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.8/m.0/cv3/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 9.715899422039576e-07,
+      "snr_loss_percent": 9.715899422039576e-05,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.22/m.0/cv2/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 9.171313427221625e-07,
+      "snr_loss_percent": 9.171313427221625e-05,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.8/m.0/m/m.1/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 8.311089167249245e-07,
+      "snr_loss_percent": 8.311089167249244e-05,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.8/m.0/cv1/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 7.954778951842676e-07,
+      "snr_loss_percent": 7.954778951842675e-05,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.20/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 7.523892596357959e-07,
+      "snr_loss_percent": 7.523892596357959e-05,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.22/m.0/cv1/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 5.886386465666266e-07,
+      "snr_loss_percent": 5.886386465666266e-05,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.8/m.0/m/m.1/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 5.825186083126727e-07,
+      "snr_loss_percent": 5.8251860831267266e-05,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv3.2/cv3.2.0/cv3.2.0.0/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 4.6503112471896223e-07,
+      "snr_loss_percent": 4.650311247189622e-05,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.23/cv2.2/cv2.2.0/depthwise/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 2.8067440283052747e-07,
+      "snr_loss_percent": 2.8067440283052747e-05,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.6/m.0/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 1.7005937160326692e-07,
+      "snr_loss_percent": 1.700593716032669e-05,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    },
+    {
+      "operation": "/model.8/m.0/cv2/conv/Conv",
+      "type": "Conv",
+      "snr_loss_ratio": 3.775727348368879e-08,
+      "snr_loss_percent": 3.7757273483688793e-06,
+      "large_loss": false,
+      "next_version_int16_candidate": false
+    }
+  ]
+}

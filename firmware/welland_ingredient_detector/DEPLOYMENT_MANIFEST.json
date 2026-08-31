@@ -1,0 +1,112 @@
+{
+  "generated_at": "2026-08-26T14:50:36+08:00",
+  "target": {
+    "chip": "esp32s3",
+    "board": "HW-679 / ESP32-S3-N16R8",
+    "camera": "GC2145",
+    "flash_bytes": 16777216,
+    "psram_bytes": 8388608,
+    "cpu_mhz": 240,
+    "flash_mode": "QIO preferred with ESP-IDF auto-detect; image header uses safe DIO",
+    "flash_mhz": 80,
+    "psram_mode": "Octal",
+    "psram_mhz": 80
+  },
+  "source_model": {
+    "path": "runs/detect/welland_v04_yolo_espdet_pico_416_500e_p50/weights/224224.pt",
+    "bytes": 1038037,
+    "sha256": "d0f66751ef5e116933da9d6a7fa5aeb9d07ffeaa4d7fdff822b3dda6ecfccb35",
+    "input_shape": [1, 3, 224, 224],
+    "classes": [
+      "apple",
+      "strawberry",
+      "cherry tomato",
+      "banana",
+      "egg",
+      "Lettuce"
+    ]
+  },
+  "class_mapping": {
+    "0": {"model": "apple", "ui_zh": "苹果"},
+    "1": {"model": "strawberry", "ui_zh": "草莓"},
+    "2": {"model": "cherry tomato", "ui_zh": "圣女果"},
+    "3": {"model": "banana", "ui_zh": "香蕉"},
+    "4": {"model": "egg", "ui_zh": "鸡蛋"},
+    "5": {"model": "Lettuce", "ui_zh": "生菜"}
+  },
+  "onnx": {
+    "path": "runs/detect/welland_v04_yolo_espdet_pico_416_500e_p50/weights/224224.onnx",
+    "bytes": 1479608,
+    "sha256": "b7a5ae8fdee009e1d2af5ea9c0495c4d374efdd7133185dd40126b2a0725397c"
+  },
+  "quantization": {
+    "format": "espdl",
+    "target": "esp32s3",
+    "default_bits": 8,
+    "int16_layers": [
+      "/model.0/conv/Conv"
+    ],
+    "int16_fused_boundaries": [],
+    "recipe": "percentile calibration + bias correction + TQT 500",
+    "calibration_images": 500,
+    "artifact": {
+      "path": "firmware/welland_ingredient_detector/models/welland_v04_yolo_espdet_pico_224_esp32s3_int8_model0_int16.espdl",
+      "version": "welland-v04-yolo-espdet-pico-224-int8-model0-int16",
+      "bytes": 498096,
+      "sha256": "59441a53d3c9c1f108552bb4d068d4d97db53503daf2c67714cc12d0e7039b93"
+    },
+    "host_validation": {
+      "images": 599,
+      "confidence_threshold": 0.25,
+      "fp32_map50": 0.9884088511957915,
+      "quantized_map50": 0.988931132474398,
+      "fp32_map50_95": 0.887617727301232,
+      "quantized_map50_95": 0.8725504756072143,
+      "report": "firmware/welland_ingredient_detector/models/welland_v04_yolo_espdet_pico_224_accuracy.json"
+    }
+  },
+  "tensor_contract": {
+    "input": {
+      "name": "images",
+      "dtype": "INT16",
+      "shape": [1, 224, 224, 3]
+    },
+    "outputs": [
+      {"name": "box0", "dtype": "INT8", "shape": [1, 28, 28, 4]},
+      {"name": "score0", "dtype": "INT8", "shape": [1, 28, 28, 6]},
+      {"name": "box1", "dtype": "INT8", "shape": [1, 14, 14, 4]},
+      {"name": "score1", "dtype": "INT8", "shape": [1, 14, 14, 6]},
+      {"name": "box2", "dtype": "INT8", "shape": [1, 7, 7, 4]},
+      {"name": "score2", "dtype": "INT8", "shape": [1, 7, 7, 6]}
+    ]
+  },
+  "firmware": {
+    "esp_idf": "6.0.2",
+    "esp_dl": "3.3.8",
+    "esp32_camera": "2.1.6",
+    "binary": {
+      "path": "firmware/welland_ingredient_detector/build/welland_ingredient_detector.bin",
+      "bytes": 3230496,
+      "sha256": "c499db0e96f0e9e94be8998f6f02a5a5adc205f87af17e9dd5fa3003befb74b3"
+    },
+    "model_storage": "embedded_in_factory_app",
+    "application_flash_offset": 65536,
+    "model_offset_in_application": 127104,
+    "model_flash_address": 192640,
+    "application_partition_bytes": 8388608,
+    "application_partition_free_bytes": 5158112,
+    "build_status": "passed"
+  },
+  "flash_verification": {
+    "status": "pending_user_flash",
+    "port_detected_during_preparation": "COM6",
+    "note": "The current binary embeds the six-class mixed-precision model. Board runtime validation must be repeated after flashing."
+  },
+  "historical_reports": {
+    "note": "The 2026-08-24 board reports belong to the previous seven-class model and must not be used as validation evidence for this firmware.",
+    "files": [
+      "firmware/welland_ingredient_detector/board_validation_report_100_20260824.json",
+      "firmware/welland_ingredient_detector/board_validation_report_full_20260824.json"
+    ]
+  }
+}

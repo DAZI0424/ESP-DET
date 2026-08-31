@@ -1,0 +1,11 @@
+{
+  "source": "http://172.17.4.66/capture.jpg",
+  "frames": [
+    {
+      "file": "gc2145_20260824_133529_186812_00000.jpg",
+      "captured_at": "2026-08-24T13:35:29.186+08:00",
+      "bytes": 31181
+    }
+  ],
+  "labeling_status": "pending"
+}

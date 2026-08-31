@@ -1,0 +1,114 @@
+{
+  "generated_at": "2026-08-26T14:50:36+08:00",
+  "comparison_basis": "same PPQ executor, preprocessing, decoding, confidence threshold and NMS",
+  "confidence_threshold": 0.25,
+  "agnostic_nms": true,
+  "max_detections": 1,
+  "validation_fraction": 1.0,
+  "imgsz": 224,
+  "batch": 32,
+  "quantized_bits": 8,
+  "precision_label": "INT8 default; /model.0/conv/Conv INT16",
+  "validation_images": 599,
+  "best_pt_reported_metrics": null,
+  "fp32_metrics": {
+    "metrics/precision(B)": 0.9699437652120865,
+    "metrics/recall(B)": 0.9874439040141477,
+    "metrics/mAP50(B)": 0.9884088511957915,
+    "metrics/mAP50-95(B)": 0.887617727301232
+  },
+  "int8_metrics": {
+    "metrics/precision(B)": 0.9751686612310553,
+    "metrics/recall(B)": 0.9875328083989502,
+    "metrics/mAP50(B)": 0.988931132474398,
+    "metrics/mAP50-95(B)": 0.8725504756072143
+  },
+  "quantized_metrics": {
+    "metrics/precision(B)": 0.9751686612310553,
+    "metrics/recall(B)": 0.9875328083989502,
+    "metrics/mAP50(B)": 0.988931132474398,
+    "metrics/mAP50-95(B)": 0.8725504756072143
+  },
+  "absolute_drop": {
+    "metrics/precision(B)": -0.005224896018968805,
+    "metrics/recall(B)": -8.890438480246843e-05,
+    "metrics/mAP50(B)": -0.0005222812786065401,
+    "metrics/mAP50-95(B)": 0.01506725169401768
+  },
+  "relative_drop_percent": {
+    "metrics/precision(B)": -0.5386803035768096,
+    "metrics/recall(B)": -0.009003487128843994,
+    "metrics/mAP50(B)": -0.05284061124854118,
+    "metrics/mAP50-95(B)": 1.6974933274292625
+  },
+  "best_pt_to_int8_absolute_drop": null,
+  "best_pt_to_int8_relative_drop_percent": null,
+  "per_class_map50_95": [
+    {
+      "class_id": 0,
+      "class_name": "apple",
+      "map50_95_fp32": 0.9184914523396956,
+      "map50_95_int8": 0.9191479909477742,
+      "map50_95_quantized": 0.9191479909477742,
+      "map50_95_absolute_drop": -0.0006565386080785718
+    },
+    {
+      "class_id": 1,
+      "class_name": "strawberry",
+      "map50_95_fp32": 0.8354504011443143,
+      "map50_95_int8": 0.8203915647895796,
+      "map50_95_quantized": 0.8203915647895796,
+      "map50_95_absolute_drop": 0.015058836354734706
+    },
+    {
+      "class_id": 2,
+      "class_name": "cherry tomato",
+      "map50_95_fp32": 0.8322424679205813,
+      "map50_95_int8": 0.7932231530094166,
+      "map50_95_quantized": 0.7932231530094166,
+      "map50_95_absolute_drop": 0.039019314911164726
+    },
+    {
+      "class_id": 3,
+      "class_name": "banana",
+      "map50_95_fp32": 0.9273634552814041,
+      "map50_95_int8": 0.9151720079579748,
+      "map50_95_quantized": 0.9151720079579748,
+      "map50_95_absolute_drop": 0.01219144732342925
+    },
+    {
+      "class_id": 4,
+      "class_name": "egg",
+      "map50_95_fp32": 0.844045934355759,
+      "map50_95_int8": 0.8377926065306569,
+      "map50_95_quantized": 0.8377926065306569,
+      "map50_95_absolute_drop": 0.0062533278251021285
+    },
+    {
+      "class_id": 5,
+      "class_name": "Lettuce",
+      "map50_95_fp32": 0.9681126527656383,
+      "map50_95_int8": 0.949575530407883,
+      "map50_95_quantized": 0.949575530407883,
+      "map50_95_absolute_drop": 0.018537122357755287
+    }
+  ],
+  "artifacts": {
+    "runs\\detect\\welland_v04_yolo_espdet_pico_416_500e_p50\\weights\\224224.pt": {
+      "bytes": 1038037,
+      "sha256": "d0f66751ef5e116933da9d6a7fa5aeb9d07ffeaa4d7fdff822b3dda6ecfccb35"
+    },
+    "runs\\detect\\welland_v04_yolo_espdet_pico_416_500e_p50\\weights\\224224.onnx": {
+      "bytes": 1479608,
+      "sha256": "b7a5ae8fdee009e1d2af5ea9c0495c4d374efdd7133185dd40126b2a0725397c"
+    },
+    "firmware\\welland_ingredient_detector\\models\\welland_v04_yolo_espdet_pico_224_esp32s3_int8_model0_int16.native": {
+      "bytes": 3190051,
+      "sha256": "83413695a67d03f88de3062596938a5192929ad95f890b74e8098285b79b8a9f"
+    },
+    "firmware\\welland_ingredient_detector\\models\\welland_v04_yolo_espdet_pico_224_esp32s3_int8_model0_int16.espdl": {
+      "bytes": 498096,
+      "sha256": "59441a53d3c9c1f108552bb4d068d4d97db53503daf2c67714cc12d0e7039b93"
+    }
+  }
+}
