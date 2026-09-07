@@ -1,0 +1,10 @@
+menu "Zhuanjie board"
+
+config BOARD_ENABLE_FPC1
+    bool "Enable existing FPC1 display bring-up demo"
+    default n
+    help
+        Leave disabled until the screen arrives and its initialization is verified.
+        Uses GPIO19/20; use the CH340 UART connector, not native USB/OTG.
+
+endmenu
