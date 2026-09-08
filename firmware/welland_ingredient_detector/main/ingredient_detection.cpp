@@ -7,6 +7,7 @@
 #include <cstring>
 #include <inttypes.h>
 #include <limits>
+#include <new>
 
 #include "dl_image_draw.hpp"
 #include "dl_image_preprocessor.hpp"
@@ -30,17 +31,26 @@ extern const uint8_t ingredient_model_end[] asm("_binary_ingredient_model_espdl_
 namespace {
 const char *TAG = "ingredient_detect";
 std::atomic<bool> s_box_overlay_enabled{true};
+uint32_t s_frame_log_counter = 0;
 constexpr int INGREDIENT_SENSOR_CROP_SIZE = 480;
+constexpr int MODEL_INTERNAL_MEMORY_BYTES = 96 * 1024;
 const char *LABELS[] = {
     "apple",
-    "strawberry",
-    "cherry tomato",
     "banana",
+    "strawberry",
+    "lettuce",
     "egg",
-    "Lettuce",
+    "orange",
+    "eggplant",
+    "cucumber",
+    "carrot",
+    "corn",
 };
 
 static_assert(sizeof(LABELS) / sizeof(LABELS[0]) == RECOGNITION_CLASS_COUNT);
+static_assert(INGREDIENT_CLASS_COUNT == RECOGNITION_CLASS_COUNT);
+static_assert((MODEL_INTERNAL_MEMORY_BYTES & 0x0f) == 0,
+              "ESP-DL internal tensor memory must be 16-byte aligned");
 
 void bytes_to_hex(const uint8_t *bytes, size_t size, char *hex)
 {
@@ -111,6 +121,23 @@ recognition_experience_state_t s_experience_state;
 ingredient_detection_result_t s_locked_result;
 ingredient_recognition_status_t s_recognition_status = {};
 
+// Capture only reads this small snapshot, never waits for model inference.
+SemaphoreHandle_t s_snapshot_mutex;
+struct CaptureSnapshot {
+    uint32_t epoch;
+    bool has_target;
+    bool locked;
+    recognition_box_t box;
+    int32_t motion_x;
+    int32_t motion_y;
+};
+CaptureSnapshot s_capture_snapshot = {};
+std::atomic<uint32_t> s_epoch{0};
+uint32_t s_model_epoch = 0;
+int32_t s_target_motion_x = 0, s_target_motion_y = 0;
+uint64_t s_last_evidence_signature = 0;
+uint16_t s_uncertain_sharpness = 0;
+
 const recognition_quality_config_t QUALITY_CONFIG = {
     .motion_max_permille = CONFIG_WELLAND_QUALITY_MOTION_MAX_PERMILLE,
     .motion_exit_permille = CONFIG_WELLAND_QUALITY_MOTION_EXIT_PERMILLE,
@@ -139,11 +166,15 @@ const recognition_decision_config_t DECISION_CONFIG = {
     .multi_margin_evidence = CONFIG_WELLAND_RECOGNITION_MULTI_MARGIN_PERCENT / 100.0f,
     .class_accept_thresholds = {
         CONFIG_WELLAND_RECOGNITION_CLASS_APPLE_PERCENT / 100.0f,
-        CONFIG_WELLAND_RECOGNITION_CLASS_STRAWBERRY_PERCENT / 100.0f,
-        CONFIG_WELLAND_RECOGNITION_CLASS_CHERRY_TOMATO_PERCENT / 100.0f,
         CONFIG_WELLAND_RECOGNITION_CLASS_BANANA_PERCENT / 100.0f,
-        CONFIG_WELLAND_RECOGNITION_CLASS_EGG_PERCENT / 100.0f,
+        CONFIG_WELLAND_RECOGNITION_CLASS_STRAWBERRY_PERCENT / 100.0f,
         CONFIG_WELLAND_RECOGNITION_CLASS_LETTUCE_PERCENT / 100.0f,
+        CONFIG_WELLAND_RECOGNITION_CLASS_EGG_PERCENT / 100.0f,
+        CONFIG_WELLAND_RECOGNITION_CLASS_ORANGE_PERCENT / 100.0f,
+        CONFIG_WELLAND_RECOGNITION_CLASS_EGGPLANT_PERCENT / 100.0f,
+        CONFIG_WELLAND_RECOGNITION_CLASS_CUCUMBER_PERCENT / 100.0f,
+        CONFIG_WELLAND_RECOGNITION_CLASS_CARROT_PERCENT / 100.0f,
+        CONFIG_WELLAND_RECOGNITION_CLASS_CORN_PERCENT / 100.0f,
     },
     .max_valid_inferences = CONFIG_WELLAND_RECOGNITION_MAX_VALID_INFERENCES,
     .target_missing_valid_frames = CONFIG_WELLAND_RECOGNITION_TARGET_MISSING_VALID_FRAMES,
@@ -170,30 +201,6 @@ uint32_t now_ms()
     return static_cast<uint32_t>(esp_timer_get_time() / 1000);
 }
 
-recognition_quality_roi_t quality_roi_for_session(uint16_t width, uint16_t height)
-{
-    recognition_quality_roi_t roi = {};
-    if (s_decision_state.valid_inferences > 0) {
-        const recognition_box_t &box = s_decision_state.frames[0].target_box;
-        const int32_t box_width = box.right - box.left;
-        const int32_t box_height = box.bottom - box.top;
-        const int32_t pad_x = box_width * QUALITY_CONFIG.target_roi_expand_percent / 100;
-        const int32_t pad_y = box_height * QUALITY_CONFIG.target_roi_expand_percent / 100;
-        roi.left = static_cast<uint16_t>(std::max<int32_t>(0, box.left - pad_x));
-        roi.top = static_cast<uint16_t>(std::max<int32_t>(0, box.top - pad_y));
-        roi.right = static_cast<uint16_t>(std::min<int32_t>(width, box.right + pad_x));
-        roi.bottom = static_cast<uint16_t>(std::min<int32_t>(height, box.bottom + pad_y));
-        return roi;
-    }
-    const uint32_t roi_width = width * QUALITY_CONFIG.presentation_roi_percent / 100U;
-    const uint32_t roi_height = height * QUALITY_CONFIG.presentation_roi_percent / 100U;
-    roi.left = static_cast<uint16_t>((width - roi_width) / 2U);
-    roi.top = static_cast<uint16_t>((height - roi_height) / 2U);
-    roi.right = static_cast<uint16_t>(roi.left + roi_width);
-    roi.bottom = static_cast<uint16_t>(roi.top + roi_height);
-    return roi;
-}
-
 bool recognition_is_locked()
 {
     return s_decision_state.state == RECOGNITION_DECISION_LOCKED ||
@@ -203,6 +210,8 @@ bool recognition_is_locked()
 ingredient_recognition_state_t public_state()
 {
     switch (s_decision_state.state) {
+    case RECOGNITION_DECISION_UNCERTAIN:
+        return INGREDIENT_RECOGNITION_UNCERTAIN;
     case RECOGNITION_DECISION_CONFIRMING:
         return INGREDIENT_RECOGNITION_CONFIRMING;
     case RECOGNITION_DECISION_LOCKED:
@@ -244,8 +253,8 @@ const char *lock_reason_name(recognition_lock_reason_t reason)
         return "single_high";
     case RECOGNITION_LOCK_REASON_TWO_FRAME_EVIDENCE:
         return "two_frame_evidence";
-    case RECOGNITION_LOCK_REASON_THREE_FRAME_FORCED:
-        return "three_frame_forced";
+    case RECOGNITION_LOCK_REASON_THREE_FRAME_EVIDENCE:
+        return "three_frame_evidence";
     default:
         return "none";
     }
@@ -253,12 +262,12 @@ const char *lock_reason_name(recognition_lock_reason_t reason)
 
 void log_quality_rejection(const recognition_quality_result_t &quality)
 {
-    ESP_LOGI(TAG,
+    ESP_LOGD(TAG,
              "decision rejected=quality quality={fresh:%d,stable:%d,roi_changed:%d,"
              "accepted:%d,scene_change:%d,changed:%u,weight:%u,motion:%u,"
              "sharpness:%u,luma:%u,dark:%u,bright:%u} "
-             "scores=not_inferred evidence=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] "
-             "normalized=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] actual_inferences=%u",
+             "scores=not_inferred evidence=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] "
+             "normalized=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] actual_inferences=%u",
              quality.fresh,
              quality.stable,
              quality.roi_changed,
@@ -274,12 +283,18 @@ void log_quality_rejection(const recognition_quality_result_t &quality)
              s_decision_state.evidence[0], s_decision_state.evidence[1],
              s_decision_state.evidence[2], s_decision_state.evidence[3],
              s_decision_state.evidence[4], s_decision_state.evidence[5],
+             s_decision_state.evidence[6], s_decision_state.evidence[7],
+             s_decision_state.evidence[8], s_decision_state.evidence[9],
              s_decision_state.normalized_evidence[0],
              s_decision_state.normalized_evidence[1],
              s_decision_state.normalized_evidence[2],
              s_decision_state.normalized_evidence[3],
              s_decision_state.normalized_evidence[4],
              s_decision_state.normalized_evidence[5],
+             s_decision_state.normalized_evidence[6],
+             s_decision_state.normalized_evidence[7],
+             s_decision_state.normalized_evidence[8],
+             s_decision_state.normalized_evidence[9],
              s_decision_state.valid_inferences);
 }
 
@@ -305,15 +320,15 @@ void log_rejected_inference(const char *reason,
         static_cast<uint32_t>(observation.target_box.right - observation.target_box.left) : 0U;
     const uint32_t box_height = observation.target_box.bottom > observation.target_box.top ?
         static_cast<uint32_t>(observation.target_box.bottom - observation.target_box.top) : 0U;
-    ESP_LOGI(TAG,
+    ESP_LOGD(TAG,
              "decision sequence=%" PRIu32 " rejected=%s "
              "quality={fresh:%d,stable:%d,roi_changed:%d,accepted:%d,weight:%u,"
              "motion:%u,sharpness:%u,luma:%u} "
-             "scores=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] "
+             "scores=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] "
              "frame_top1=%d:%.3f frame_top2=%d:%.3f frame_margin=%.3f "
              "box=[%d,%d,%d,%d] area=%" PRIu32 " "
-             "evidence=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] "
-             "normalized=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] "
+             "evidence=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] "
+             "normalized=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] "
              "evidence_top1=%d evidence_top2=%d evidence_margin=%.3f "
              "lock_reason=%s confidence=%s actual_inferences=%u",
              observation.sequence,
@@ -329,6 +344,8 @@ void log_rejected_inference(const char *reason,
              observation.class_scores[0], observation.class_scores[1],
              observation.class_scores[2], observation.class_scores[3],
              observation.class_scores[4], observation.class_scores[5],
+             observation.class_scores[6], observation.class_scores[7],
+             observation.class_scores[8], observation.class_scores[9],
              top1 == UINT8_MAX ? -1 : top1,
              top1_score,
              top2 == UINT8_MAX ? -1 : top2,
@@ -342,12 +359,18 @@ void log_rejected_inference(const char *reason,
              s_decision_state.evidence[0], s_decision_state.evidence[1],
              s_decision_state.evidence[2], s_decision_state.evidence[3],
              s_decision_state.evidence[4], s_decision_state.evidence[5],
+             s_decision_state.evidence[6], s_decision_state.evidence[7],
+             s_decision_state.evidence[8], s_decision_state.evidence[9],
              s_decision_state.normalized_evidence[0],
              s_decision_state.normalized_evidence[1],
              s_decision_state.normalized_evidence[2],
              s_decision_state.normalized_evidence[3],
              s_decision_state.normalized_evidence[4],
              s_decision_state.normalized_evidence[5],
+             s_decision_state.normalized_evidence[6],
+             s_decision_state.normalized_evidence[7],
+             s_decision_state.normalized_evidence[8],
+             s_decision_state.normalized_evidence[9],
              s_decision_state.candidate_category == UINT8_MAX ? -1 :
                  s_decision_state.candidate_category,
              s_decision_state.candidate_second_category == UINT8_MAX ? -1 :
@@ -365,15 +388,15 @@ void log_evidence_round(const recognition_quality_result_t &quality)
     }
     const recognition_frame_evidence_t &frame =
         s_decision_state.frames[s_decision_state.valid_inferences - 1U];
-    ESP_LOGI(TAG,
+    ESP_LOGD(TAG,
              "decision round=%u sequence=%" PRIu32
              " quality={fresh:%d,stable:%d,roi_changed:%d,accepted:%d,weight:%u,"
              "motion:%u,sharpness:%u,luma:%u} "
-             "scores=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] "
+             "scores=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] "
              "frame_top1=%u:%.3f frame_top2=%u:%.3f frame_margin=%.3f "
              "box=[%d,%d,%d,%d] area=%" PRIu32 " "
-             "evidence=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] "
-             "normalized=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] "
+             "evidence=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] "
+             "normalized=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] "
              "evidence_top1=%u evidence_top2=%u evidence_margin=%.3f "
              "lock_reason=%s confidence=%s actual_inferences=%u",
              s_decision_state.valid_inferences,
@@ -388,6 +411,8 @@ void log_evidence_round(const recognition_quality_result_t &quality)
              quality.mean_luma,
              frame.class_scores[0], frame.class_scores[1], frame.class_scores[2],
              frame.class_scores[3], frame.class_scores[4], frame.class_scores[5],
+             frame.class_scores[6], frame.class_scores[7], frame.class_scores[8],
+             frame.class_scores[9],
              frame.top1_category,
              frame.top1_score,
              frame.top2_category,
@@ -401,12 +426,18 @@ void log_evidence_round(const recognition_quality_result_t &quality)
              s_decision_state.evidence[0], s_decision_state.evidence[1],
              s_decision_state.evidence[2], s_decision_state.evidence[3],
              s_decision_state.evidence[4], s_decision_state.evidence[5],
+             s_decision_state.evidence[6], s_decision_state.evidence[7],
+             s_decision_state.evidence[8], s_decision_state.evidence[9],
              s_decision_state.normalized_evidence[0],
              s_decision_state.normalized_evidence[1],
              s_decision_state.normalized_evidence[2],
              s_decision_state.normalized_evidence[3],
              s_decision_state.normalized_evidence[4],
              s_decision_state.normalized_evidence[5],
+             s_decision_state.normalized_evidence[6],
+             s_decision_state.normalized_evidence[7],
+             s_decision_state.normalized_evidence[8],
+             s_decision_state.normalized_evidence[9],
              s_decision_state.candidate_category,
              s_decision_state.candidate_second_category,
              s_decision_state.candidate_margin,
@@ -419,8 +450,20 @@ void sync_recognition_status(const recognition_quality_result_t *quality,
                              const ingredient_performance_t *performance,
                              uint32_t current_ms)
 {
+    xSemaphoreTake(s_snapshot_mutex, portMAX_DELAY);
+    if (s_model_epoch != s_epoch.load()) {
+        recognition_decision_cancel(&s_decision_state);
+        recognition_experience_reset(&s_experience_state);
+        s_locked_result = {};
+        s_last_evidence_signature = 0;
+        s_model_epoch = s_epoch.load();
+    }
+    s_capture_snapshot = {s_epoch.load(), s_decision_state.has_target, recognition_is_locked(),
+                          s_decision_state.last_box, s_target_motion_x, s_target_motion_y};
+    xSemaphoreGive(s_snapshot_mutex);
     s_recognition_status.state = public_state();
-    s_recognition_status.inference_active = !recognition_is_locked();
+    s_recognition_status.inference_active = !recognition_is_locked() &&
+        s_decision_state.state != RECOGNITION_DECISION_UNCERTAIN;
     s_recognition_status.candidate_category = s_decision_state.candidate_category;
     s_recognition_status.candidate_second_category =
         s_decision_state.candidate_second_category;
@@ -444,6 +487,7 @@ void sync_recognition_status(const recognition_quality_result_t *quality,
         s_decision_state.completed_locks == 0 ? 0.0f :
             s_decision_state.total_lock_inferences /
                 static_cast<float>(s_decision_state.completed_locks);
+    for (size_t i = 0; i < 3; ++i) s_recognition_status.frame_lock_counts[i] = s_decision_state.frame_lock_counts[i];
     s_recognition_status.elapsed_ms = recognition_elapsed_ms(current_ms);
     s_recognition_status.motion_candidate_active = false;
     s_recognition_status.experience_started = s_experience_state.started;
@@ -476,7 +520,8 @@ void sync_recognition_status(const recognition_quality_result_t *quality,
 
 void reset_recognition_state()
 {
-    recognition_quality_reset(&s_quality_state);
+    ++s_epoch;
+    s_last_evidence_signature = 0;
     recognition_decision_init(&s_decision_state);
     recognition_experience_reset(&s_experience_state);
     s_locked_result = {};
@@ -486,16 +531,17 @@ void reset_recognition_state()
     s_recognition_status.candidate_category = UINT8_MAX;
     s_recognition_status.candidate_second_category = UINT8_MAX;
     s_recognition_status.window_frames = CONFIG_WELLAND_RECOGNITION_MAX_VALID_INFERENCES;
+    sync_recognition_status(nullptr, nullptr, now_ms());
 }
 
-void validate_tensor_contract(const char *name,
+bool validate_tensor_contract(const char *name,
                               dl::TensorBase *tensor,
                               dl::dtype_t expected_dtype,
                               const std::array<int, 4> &expected_shape)
 {
     if (tensor == nullptr) {
         ESP_LOGE(TAG, "model tensor '%s' is missing", name);
-        std::abort();
+        return false;
     }
 
     const bool shape_matches =
@@ -516,29 +562,30 @@ void validate_tensor_contract(const char *name,
                  expected_shape[1],
                  expected_shape[2],
                  expected_shape[3]);
-        std::abort();
+        return false;
     }
+    return true;
 }
 
-void validate_model_contract(dl::Model *model)
+bool validate_model_contract(dl::Model *model)
 {
-    validate_tensor_contract(
+    return validate_tensor_contract(
         "images",
         model->get_input("images"),
         dl::DATA_TYPE_INT16,
-        {1, INGREDIENT_MODEL_HEIGHT, INGREDIENT_MODEL_WIDTH, 3});
-    validate_tensor_contract(
-        "box0", model->get_output("box0"), dl::DATA_TYPE_INT8, {1, 28, 28, 4});
-    validate_tensor_contract(
-        "score0", model->get_output("score0"), dl::DATA_TYPE_INT8, {1, 28, 28, 6});
-    validate_tensor_contract(
-        "box1", model->get_output("box1"), dl::DATA_TYPE_INT8, {1, 14, 14, 4});
-    validate_tensor_contract(
-        "score1", model->get_output("score1"), dl::DATA_TYPE_INT8, {1, 14, 14, 6});
-    validate_tensor_contract(
-        "box2", model->get_output("box2"), dl::DATA_TYPE_INT8, {1, 7, 7, 4});
-    validate_tensor_contract(
-        "score2", model->get_output("score2"), dl::DATA_TYPE_INT8, {1, 7, 7, 6});
+        {1, INGREDIENT_MODEL_HEIGHT, INGREDIENT_MODEL_WIDTH, 3}) &&
+        validate_tensor_contract(
+            "box0", model->get_output("box0"), dl::DATA_TYPE_INT8, {1, 28, 28, 4}) &&
+        validate_tensor_contract(
+            "score0", model->get_output("score0"), dl::DATA_TYPE_INT8, {1, 28, 28, INGREDIENT_CLASS_COUNT}) &&
+        validate_tensor_contract(
+            "box1", model->get_output("box1"), dl::DATA_TYPE_INT8, {1, 14, 14, 4}) &&
+        validate_tensor_contract(
+            "score1", model->get_output("score1"), dl::DATA_TYPE_INT8, {1, 14, 14, INGREDIENT_CLASS_COUNT}) &&
+        validate_tensor_contract(
+            "box2", model->get_output("box2"), dl::DATA_TYPE_INT8, {1, 7, 7, 4}) &&
+        validate_tensor_contract(
+            "score2", model->get_output("score2"), dl::DATA_TYPE_INT8, {1, 7, 7, INGREDIENT_CLASS_COUNT});
 }
 
 class IngredientDetector final {
@@ -549,29 +596,50 @@ public:
             static_cast<size_t>(ingredient_model_end - ingredient_model);
         validate_and_log_embedded_model(embedded_model_bytes);
 
-        m_model = new dl::Model(reinterpret_cast<const char *>(ingredient_model),
-                                fbs::MODEL_LOCATION_IN_FLASH_RODATA);
+        m_model = new (std::nothrow) dl::Model(reinterpret_cast<const char *>(ingredient_model),
+                                               fbs::MODEL_LOCATION_IN_FLASH_RODATA,
+                                               MODEL_INTERNAL_MEMORY_BYTES);
+        if (m_model == nullptr) {
+            ESP_LOGE(TAG, "model object allocation failed");
+            return;
+        }
+        if (!validate_model_contract(m_model)) {
+            delete m_model;
+            m_model = nullptr;
+            m_init_status = ESP_ERR_NO_MEM;
+            return;
+        }
         m_model->minimize();
-        validate_model_contract(m_model);
-        m_image_preprocessor = new dl::image::ImagePreprocessor(
+        m_image_preprocessor = new (std::nothrow) dl::image::ImagePreprocessor(
             m_model,
             {0, 0, 0},
             {255, 255, 255});
+        if (m_image_preprocessor == nullptr) {
+            ESP_LOGE(TAG, "image preprocessor allocation failed");
+            delete m_model;
+            m_model = nullptr;
+            return;
+        }
         m_image_preprocessor->enable_letterbox({114, 114, 114});
         m_model_memory = m_model->get_memory_info().at("total");
+        m_init_status = ESP_OK;
     }
+
+    esp_err_t init_status() const { return m_init_status; }
 
     void run_profiled(
         const dl::image::img_t &image,
         ingredient_detection_result_t *output,
-        ingredient_performance_t *performance)
+        ingredient_performance_t *performance,
+        const recognition_box_t *target = nullptr, bool live = false)
     {
         const int64_t start_us = esp_timer_get_time();
         m_image_preprocessor->preprocess(image);
         const int64_t preprocess_end_us = esp_timer_get_time();
         m_model->run(dl::RUNTIME_MODE_AUTO);
         const int64_t inference_end_us = esp_timer_get_time();
-        decode_top_categories(output);
+        if (live) decode_target(output, target);
+        else decode_top_categories(output);
         const int64_t postprocess_end_us = esp_timer_get_time();
         if (performance != nullptr) {
             performance->preprocess_us = (uint32_t)(preprocess_end_us - start_us);
@@ -583,9 +651,13 @@ public:
         }
     }
 
+    bool ambiguous() const { return m_ambiguous; }
+
 private:
+    bool m_ambiguous = false;
     dl::Model *m_model = nullptr;
     dl::image::ImagePreprocessor *m_image_preprocessor = nullptr;
+    esp_err_t m_init_status = ESP_ERR_NO_MEM;
     struct Stage {
         const char *score_name;
         const char *box_name;
@@ -677,6 +749,68 @@ private:
         }
     }
 
+    void decode_target(ingredient_detection_result_t *output, const recognition_box_t *target)
+    {
+        const char *scores[] = {"score0", "score1", "score2"};
+        const char *boxes[] = {"box0", "box1", "box2"};
+        const int strides[] = {8, 16, 32};
+        float best_rank = -1.0f, winner_score = 0.0f;
+        recognition_box_t winner = {};
+        const int8_t *winner_scores = nullptr;
+        float winner_scale = 0;
+        m_ambiguous = false;
+        // One anchor supplies all ten class scores. Never mix unrelated locations.
+        // Second pass detects competing objects before allowing a quick lock.
+        for (int pass = 0; pass < 2; ++pass) {
+            for (int stage = 0; stage < 3; ++stage) {
+                auto *score_tensor = m_model->get_output(scores[stage]);
+                auto *box_tensor = m_model->get_output(boxes[stage]);
+                const auto *sp = static_cast<const int8_t *>(score_tensor->data);
+                const auto *bp = static_cast<const int8_t *>(box_tensor->data);
+                const float ss = DL_SCALE(score_tensor->exponent), bs = DL_SCALE(box_tensor->exponent);
+                for (int y = 0; y < score_tensor->shape[1]; ++y) {
+                    for (int x = 0; x < score_tensor->shape[2]; ++x, sp += INGREDIENT_CLASS_COUNT, bp += 4) {
+                        int8_t max_logit = sp[0];
+                        for (int c = 1; c < INGREDIENT_CLASS_COUNT; ++c) max_logit = std::max(max_logit, sp[c]);
+                        const float confidence = dl::math::sigmoid(dl::dequantize(max_logit, ss));
+                        if (confidence < CONFIG_WELLAND_DETECTION_SCORE_PERCENT / 100.0f) continue;
+                        const int stride = strides[stage], cx = x*stride+stride/2, cy = y*stride+stride/2;
+                        recognition_box_t box = {
+                            (int16_t)std::clamp<int>(cx-dl::dequantize(bp[0],bs)*stride,0,223),
+                            (int16_t)std::clamp<int>(cy-dl::dequantize(bp[1],bs)*stride,0,223),
+                            (int16_t)std::clamp<int>(cx+dl::dequantize(bp[2],bs)*stride,0,223),
+                            (int16_t)std::clamp<int>(cy+dl::dequantize(bp[3],bs)*stride,0,223)};
+                        const int w = box.right-box.left, h = box.bottom-box.top;
+                        if (std::min(w,h) < DECISION_CONFIG.box_min_side_pixels ||
+                            w*h*1000 < 224*224*DECISION_CONFIG.box_min_area_permille ||
+                            w*h*1000 > 224*224*DECISION_CONFIG.box_max_area_permille ||
+                            std::max(w,h)*1000 > std::min(w,h)*DECISION_CONFIG.box_max_aspect_permille) continue;
+                        if (target && !recognition_boxes_associate(target, &box, &DECISION_CONFIG)) continue;
+                        const int distance = std::abs(box.left+box.right-224)+std::abs(box.top+box.bottom-224);
+                        const float rank = confidence - (target ? 0.0f : 0.10f*distance/448.0f);
+                        if (pass == 0 && rank > best_rank) {
+                            best_rank = rank; winner_score = confidence; winner = box;
+                            winner_scores = sp; winner_scale = ss;
+                        } else if (pass == 1 && winner_scores && confidence >= winner_score-0.05f &&
+                            !recognition_boxes_associate(&winner, &box, &DECISION_CONFIG)) {
+                            m_ambiguous = true;
+                        }
+                    }
+                }
+            }
+        }
+        output->count = 0;
+        if (!winner_scores) return;
+        for (int c = 0; c < INGREDIENT_CLASS_COUNT; ++c) {
+            ingredient_detection_item_t item = {};
+            item.category = c;
+            item.score = dl::math::sigmoid(dl::dequantize(winner_scores[c], winner_scale));
+            item.box[0] = winner.left; item.box[1] = winner.top;
+            item.box[2] = winner.right; item.box[3] = winner.bottom;
+            insert_sorted(item, output);
+        }
+    }
+
     void decode_top_categories(ingredient_detection_result_t *output)
     {
         static constexpr Stage STAGES[] = {
@@ -725,11 +859,18 @@ extern "C" esp_err_t ingredient_detection_start(void)
     if (s_model_mutex != nullptr) {
         return ESP_OK;
     }
+    IngredientDetector &model = detector();
+    if (model.init_status() != ESP_OK) {
+        return model.init_status();
+    }
+    s_snapshot_mutex = xSemaphoreCreateMutex();
+    if (s_snapshot_mutex == nullptr) return ESP_ERR_NO_MEM;
     s_model_mutex = xSemaphoreCreateMutex();
     if (s_model_mutex == nullptr) {
+        vSemaphoreDelete(s_snapshot_mutex);
+        s_snapshot_mutex = nullptr;
         return ESP_ERR_NO_MEM;
     }
-    detector();
     reset_recognition_state();
     return ESP_OK;
 }
@@ -753,7 +894,8 @@ extern "C" esp_err_t ingredient_detection_cancel(void)
     }
     xSemaphoreTake(s_model_mutex, portMAX_DELAY);
     recognition_decision_cancel(&s_decision_state);
-    recognition_quality_reset(&s_quality_state);
+    ++s_epoch;
+    s_last_evidence_signature = 0;
     recognition_experience_reset(&s_experience_state);
     s_locked_result = {};
     sync_recognition_status(nullptr, nullptr, now_ms());
@@ -785,7 +927,8 @@ extern "C" esp_err_t ingredient_detection_complete_weighing(void)
         return ESP_ERR_INVALID_STATE;
     }
     recognition_decision_complete_weighing(&s_decision_state);
-    recognition_quality_reset(&s_quality_state);
+    ++s_epoch;
+    s_last_evidence_signature = 0;
     recognition_experience_reset(&s_experience_state);
     s_locked_result = {};
     sync_recognition_status(nullptr, nullptr, now_ms());
@@ -805,23 +948,23 @@ extern "C" esp_err_t ingredient_detection_get_recognition_status(
     }
     xSemaphoreTake(s_model_mutex, portMAX_DELAY);
     const uint32_t current_ms = now_ms();
-    recognition_decision_tick(&s_decision_state, &DECISION_CONFIG, current_ms);
+    if (recognition_decision_tick(&s_decision_state, &DECISION_CONFIG, current_ms) != RECOGNITION_EVENT_NONE) {
+        ++s_epoch;
+        recognition_experience_reset(&s_experience_state);
+    }
     sync_recognition_status(nullptr, nullptr, current_ms);
     *status = s_recognition_status;
     xSemaphoreGive(s_model_mutex);
     return ESP_OK;
 }
 
-extern "C" ingredient_detection_result_t ingredient_detection_run(
-    const uint8_t *source_rgb565_be,
-    uint16_t source_width,
-    uint16_t source_height,
-    uint8_t *output_rgb565_be,
-    uint16_t output_width,
-    uint16_t output_height)
+extern "C" void ingredient_detection_prepare(
+    const uint8_t *source_rgb565_be, uint16_t source_width, uint16_t source_height,
+    uint8_t *output_rgb565_be, uint32_t captured_ms, ingredient_frame_t *frame)
 {
     static dl::image::ImageTransformer transformer;
     const int64_t frame_started_us = esp_timer_get_time();
+    const uint16_t output_width = INGREDIENT_MODEL_WIDTH, output_height = INGREDIENT_MODEL_HEIGHT;
 
     const int crop_left = (source_width - INGREDIENT_SENSOR_CROP_SIZE) / 2;
     const int crop_top = (source_height - INGREDIENT_SENSOR_CROP_SIZE) / 2;
@@ -848,13 +991,91 @@ extern "C" ingredient_detection_result_t ingredient_detection_run(
                         .set_dst_img_border({})
                         .transform());
 
+
+    static uint32_t capture_epoch = UINT32_MAX;
+    static int32_t motion_x = 0, motion_y = 0;
+    CaptureSnapshot snapshot;
+    xSemaphoreTake(s_snapshot_mutex, portMAX_DELAY);
+    snapshot = s_capture_snapshot;
+    xSemaphoreGive(s_snapshot_mutex);
+    if (capture_epoch != snapshot.epoch) {
+        recognition_quality_reset(&s_quality_state);
+        motion_x = motion_y = 0;
+        capture_epoch = snapshot.epoch;
+    }
+    recognition_box_t predicted = snapshot.box;
+    if (snapshot.has_target) {
+        const int dx = motion_x - snapshot.motion_x, dy = motion_y - snapshot.motion_y;
+        predicted.left += dx; predicted.right += dx;
+        predicted.top += dy; predicted.bottom += dy;
+    }
+    const int pad_x = (predicted.right-predicted.left)*QUALITY_CONFIG.target_roi_expand_percent/100;
+    const int pad_y = (predicted.bottom-predicted.top)*QUALITY_CONFIG.target_roi_expand_percent/100;
+    const int margin = INGREDIENT_MODEL_WIDTH*(100-QUALITY_CONFIG.presentation_roi_percent)/200;
+    recognition_quality_roi_t roi = snapshot.has_target ? recognition_quality_roi_t{
+        (uint16_t)std::clamp<int>(predicted.left-pad_x, 0, 223),
+        (uint16_t)std::clamp<int>(predicted.top-pad_y, 0, 223),
+        (uint16_t)std::clamp<int>(predicted.right+pad_x, 1, 224),
+        (uint16_t)std::clamp<int>(predicted.bottom+pad_y, 1, 224)} :
+        recognition_quality_roi_t{(uint16_t)margin, (uint16_t)margin,
+            (uint16_t)(224-margin), (uint16_t)(224-margin)};
+    *frame = {};
+    frame->captured_ms = captured_ms;
+    frame->epoch = snapshot.epoch;
+    frame->quality = recognition_quality_evaluate(&s_quality_state, output_rgb565_be,
+        output_width, output_height, &QUALITY_CONFIG, &roi);
+    if (snapshot.has_target && frame->quality.tracking_reliable) {
+        motion_x += frame->quality.displacement_x;
+        motion_y += frame->quality.displacement_y;
+        predicted.left += frame->quality.displacement_x;
+        predicted.right += frame->quality.displacement_x;
+        predicted.top += frame->quality.displacement_y;
+        predicted.bottom += frame->quality.displacement_y;
+    }
+    if (frame->quality.scene_change && !snapshot.locked) {
+        xSemaphoreTake(s_snapshot_mutex, portMAX_DELAY);
+        if (s_epoch.load() == snapshot.epoch) {
+            s_capture_snapshot.epoch = ++s_epoch;
+            s_capture_snapshot.has_target = false;
+        }
+        xSemaphoreGive(s_snapshot_mutex);
+    }
+    frame->motion_x = motion_x;
+    frame->motion_y = motion_y;
+    frame->has_target = snapshot.has_target;
+    frame->predicted_box = predicted;
+    frame->quality_us = (uint32_t)(esp_timer_get_time()-frame_started_us);
+}
+
+extern "C" ingredient_detection_result_t ingredient_detection_run(
+    uint8_t *output_rgb565_be, const ingredient_frame_t *frame)
+{
+    const int64_t frame_started_us = esp_timer_get_time();
+    dl::image::img_t image = {.data = output_rgb565_be,
+        .width = INGREDIENT_MODEL_WIDTH, .height = INGREDIENT_MODEL_HEIGHT,
+        .pix_type = dl::image::DL_IMAGE_PIX_TYPE_RGB565BE};
     ingredient_detection_result_t current = {};
     ingredient_performance_t performance = {};
-    recognition_quality_result_t quality = {};
+    recognition_quality_result_t quality = frame->quality;
     bool inference_ran = false;
     bool locked = false;
     xSemaphoreTake(s_model_mutex, portMAX_DELAY);
     const uint32_t current_ms = now_ms();
+    if (s_model_epoch != s_epoch.load()) sync_recognition_status(nullptr, nullptr, current_ms);
+    if (frame->epoch != s_epoch || current_ms-frame->captured_ms > RECOGNITION_CANDIDATE_MAX_AGE_MS) {
+        xSemaphoreGive(s_model_mutex);
+        return current;
+    }
+    // While awaiting a new view, a tracked, clear target is still present even
+    // though no additional model evidence is requested.
+    if (s_decision_state.state == RECOGNITION_DECISION_UNCERTAIN && frame->has_target &&
+        quality.stable && !quality.scene_change &&
+        quality.sharpness >= QUALITY_CONFIG.sharpness_min &&
+        quality.mean_luma >= QUALITY_CONFIG.exposure_mean_min &&
+        quality.mean_luma <= QUALITY_CONFIG.exposure_mean_max &&
+        quality.dark_permille + quality.bright_permille <= QUALITY_CONFIG.clipped_max_permille) {
+        s_decision_state.last_seen_ms = current_ms;
+    }
     recognition_decision_event_t event =
         recognition_decision_tick(&s_decision_state, &DECISION_CONFIG, current_ms);
 
@@ -862,18 +1083,24 @@ extern "C" ingredient_detection_result_t ingredient_detection_run(
         current = s_locked_result;
         current.elapsed_ms = 0;
     } else {
-        const int64_t quality_started_us = esp_timer_get_time();
-        const recognition_quality_roi_t quality_roi =
-            quality_roi_for_session(output_width, output_height);
-        quality = recognition_quality_evaluate(&s_quality_state,
-                                               output_rgb565_be,
-                                               output_width,
-                                               output_height,
-                                               &QUALITY_CONFIG,
-                                               &quality_roi);
-        performance.quality_us = static_cast<uint32_t>(
-            esp_timer_get_time() - quality_started_us);
-
+        performance.quality_us = frame->quality_us;
+        if (event == RECOGNITION_EVENT_SESSION_TIMEOUT) {
+            ++s_epoch;
+            recognition_experience_reset(&s_experience_state);
+            quality.accepted = false;
+        }
+        if (s_decision_state.state == RECOGNITION_DECISION_UNCERTAIN) {
+            // Only a changed view or substantially improved sharpness starts a new attempt.
+            if (quality.accepted && (quality.raw_motion_permille >= 20 ||
+                quality.sharpness > s_uncertain_sharpness * 12U / 10U)) {
+                recognition_decision_cancel(&s_decision_state);
+                ++s_epoch;
+                s_last_evidence_signature = 0;
+                recognition_experience_reset(&s_experience_state);
+            }
+            quality.accepted = false;
+        }
+        if (quality.signature == s_last_evidence_signature) quality.accepted = false;
         if (!quality.accepted) {
             const int64_t decision_started_us = esp_timer_get_time();
             event = recognition_decision_bad_frame(&s_decision_state,
@@ -888,7 +1115,12 @@ extern "C" ingredient_detection_result_t ingredient_detection_run(
                 s_decision_state.session_started_ms = current_ms == 0 ? 1 : current_ms;
             }
             IngredientDetector &model = detector();
-            model.run_profiled(image, &current, &performance);
+            model.run_profiled(image, &current, &performance, frame->has_target ? &frame->predicted_box : nullptr, true);
+            if (frame->epoch != s_epoch.load()) {
+                sync_recognition_status(nullptr, nullptr, now_ms());
+                xSemaphoreGive(s_model_mutex);
+                return {};
+            }
             current.sequence = ++s_sequence;
             current.elapsed_ms =
                 (performance.preprocess_us + performance.inference_us +
@@ -901,6 +1133,9 @@ extern "C" ingredient_detection_result_t ingredient_detection_run(
             observation.sequence = current.sequence;
             observation.now_ms = decision_now_ms;
             observation.quality_weight_permille = quality.weight_permille;
+            observation.has_prediction = frame->has_target;
+            observation.predicted_box = frame->predicted_box;
+            observation.ambiguous = model.ambiguous();
             if (current.count > 0) {
                 observation.target_box.left = current.items[0].box[0];
                 observation.target_box.top = current.items[0].box[1];
@@ -923,8 +1158,12 @@ extern "C" ingredient_detection_result_t ingredient_detection_run(
                                                      &DECISION_CONFIG,
                                                      &observation);
                 if (s_decision_state.last_sequence == observation.sequence) {
+                    s_last_evidence_signature = quality.signature;
+                    s_target_motion_x = frame->motion_x;
+                    s_target_motion_y = frame->motion_y;
+                    s_uncertain_sharpness = quality.sharpness;
                     recognition_experience_confirm_target(&s_experience_state,
-                                                          current_ms);
+                                                          frame->captured_ms);
                     log_evidence_round(quality);
                 } else {
                     log_rejected_inference("target_box", quality, observation);
@@ -936,6 +1175,9 @@ extern "C" ingredient_detection_result_t ingredient_detection_run(
 
         if (event == RECOGNITION_EVENT_EVIDENCE_RESET ||
             event == RECOGNITION_EVENT_SESSION_TIMEOUT) {
+            if (s_model_epoch == s_epoch.load()) ++s_epoch;
+            s_last_evidence_signature = 0;
+            recognition_experience_reset(&s_experience_state);
             ESP_LOGI(TAG, "recognition evidence reset: event=%d", static_cast<int>(event));
         }
         if (recognition_is_locked()) {
@@ -968,6 +1210,7 @@ extern "C" ingredient_detection_result_t ingredient_detection_run(
     performance.effective_inferences = s_decision_state.valid_inferences;
     performance.total_us = static_cast<uint32_t>(esp_timer_get_time() - frame_started_us);
     sync_recognition_status(&quality, &performance, now_ms());
+    if (frame->epoch != s_epoch.load()) { current = {}; locked = false; }
     xSemaphoreGive(s_model_mutex);
 
     for (size_t index = 0;
@@ -995,7 +1238,8 @@ extern "C" ingredient_detection_result_t ingredient_detection_run(
             }
         }
     }
-    if (inference_ran) {
+    const bool log_frame = (++s_frame_log_counter % 10U) == 1U;
+    if (inference_ran && log_frame) {
         ESP_LOGI(TAG,
                  "frame=%" PRIu32 " top_k=%zu quality=%" PRIu32 "us preprocess=%" PRIu32
                  "us inference=%" PRIu32 "us postprocess=%" PRIu32 "us decision=%" PRIu32
@@ -1012,7 +1256,7 @@ extern "C" ingredient_detection_result_t ingredient_detection_run(
                  quality.motion_permille,
                  quality.sharpness,
                  quality.mean_luma);
-    } else if (!locked) {
+    } else if (!locked && log_frame) {
         ESP_LOGI(TAG,
                  "quality_gate fresh=%d stable=%d roi_changed=%d accepted=%d "
                  "scene_change=%d changed=%u motion=%u sharpness=%u luma=%u "

@@ -5,5 +5,5 @@ cmake_minimum_required(VERSION 3.16)
 set(IDF_TARGET "esp32s3" CACHE STRING "ESP-IDF target")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-set(PROJECT_VER "backlight-on-v1")
+set(PROJECT_VER "ui-native-v1")
 project(zhuanjie_lvgl)

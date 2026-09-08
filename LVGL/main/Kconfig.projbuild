@@ -1,10 +1,28 @@
 menu "Zhuanjie board"
-
-config BOARD_ENABLE_FPC1
-    bool "Enable existing FPC1 display bring-up demo"
-    default n
+config BOARD_UI_CATEGORY_DEMO
+    bool "Show M013 category switching UI"
+    default y
     help
-        Leave disabled until the screen arrives and its initialization is verified.
-        Uses GPIO19/20; use the CH340 UART connector, not native USB/OTG.
+        Native LVGL category scene; disable to show the previous loading UI.
 
+config BOARD_ANIMATION_FPS
+    int "Animation playback frames per second"
+    range 1 60
+    default 30
+    help
+        Source is 30 fps. Default playback preserves the source timing.
+        Hardware throughput may limit the achieved playback rate.
+
+config BOARD_ANIMATION_SPI_MHZ
+    int "Animation pixel SPI clock (MHz)"
+    range 1 40
+    default 40
+    help
+        Initialization stays at 1 MHz. Pixel transfers switch to this clock.
+        40 MHz targets 30 fps with differential refresh; validate on hardware.
+        Lower the clock if the image is corrupted; playback may become slower.
+
+config BOARD_LCD_COLOR_TEST
+    bool "Run previous LCD color test instead of LVGL animation"
+    default n
 endmenu

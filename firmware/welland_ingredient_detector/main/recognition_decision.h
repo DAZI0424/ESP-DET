@@ -12,11 +12,14 @@
 extern "C" {
 #endif
 
-#define RECOGNITION_CLASS_COUNT 6
+#define RECOGNITION_CLASS_COUNT 10
 #define RECOGNITION_FRAME_WIDTH 224U
 #define RECOGNITION_FRAME_HEIGHT 224U
 #define RECOGNITION_QUALITY_GRID 52
 #define RECOGNITION_MAX_EVIDENCE_FRAMES 3U
+#define RECOGNITION_CANDIDATE_MAX_AGE_MS 500U
+#define RECOGNITION_TARGET_LOST_MS 2000U
+#define RECOGNITION_MOTION_SEARCH_RADIUS 3
 
 typedef struct {
     uint16_t motion_max_permille;
@@ -58,16 +61,24 @@ typedef struct {
     uint16_t bright_permille;
     uint16_t weight_permille;
     uint64_t signature;
+    uint16_t raw_motion_permille;
+    int16_t displacement_x;
+    int16_t displacement_y;
+    bool tracking_reliable;
 } recognition_quality_result_t;
 
 typedef struct {
     bool has_reference;
+    bool has_motion_reference;
+    bool previous_tracking_reliable;
+    uint16_t previous_compensated_motion;
     bool stable;
     uint8_t stable_frames;
     uint8_t scene_change_frames;
     recognition_quality_roi_t roi;
     uint64_t signature;
     uint8_t samples[RECOGNITION_QUALITY_GRID * RECOGNITION_QUALITY_GRID];
+    uint8_t previous_delta[RECOGNITION_QUALITY_GRID * RECOGNITION_QUALITY_GRID];
 } recognition_quality_state_t;
 
 typedef struct {
@@ -89,6 +100,7 @@ typedef enum {
     RECOGNITION_DECISION_CONFIRMING,
     RECOGNITION_DECISION_LOCKED,
     RECOGNITION_DECISION_WEIGHING,
+    RECOGNITION_DECISION_UNCERTAIN,
 } recognition_decision_state_id_t;
 
 typedef enum {
@@ -110,7 +122,7 @@ typedef enum {
     RECOGNITION_LOCK_REASON_NONE = 0,
     RECOGNITION_LOCK_REASON_SINGLE_HIGH,
     RECOGNITION_LOCK_REASON_TWO_FRAME_EVIDENCE,
-    RECOGNITION_LOCK_REASON_THREE_FRAME_FORCED,
+    RECOGNITION_LOCK_REASON_THREE_FRAME_EVIDENCE,
 } recognition_lock_reason_t;
 
 typedef struct {
@@ -140,6 +152,9 @@ typedef struct {
     uint16_t quality_weight_permille;
     float class_scores[RECOGNITION_CLASS_COUNT];
     recognition_box_t target_box;
+    bool has_prediction;
+    recognition_box_t predicted_box;
+    bool ambiguous;
 } recognition_observation_t;
 
 typedef struct {
@@ -168,6 +183,7 @@ typedef struct {
     recognition_box_t last_box;
     uint32_t last_sequence;
     uint32_t session_started_ms;
+    uint32_t last_seen_ms;
     uint32_t lock_started_ms;
     uint32_t locked_decision_elapsed_ms;
     uint8_t candidate_category;
@@ -183,7 +199,13 @@ typedef struct {
     uint32_t completed_locks;
     uint32_t total_lock_inferences;
     uint32_t confidence_lock_counts[RECOGNITION_CONFIDENCE_COUNT];
+    uint32_t frame_lock_counts[RECOGNITION_MAX_EVIDENCE_FRAMES];
 } recognition_decision_state_t;
+
+RD_CONSTEXPR bool recognition_boxes_associate(const recognition_box_t *previous,
+    const recognition_box_t *current, const recognition_decision_config_t *config);
+RD_CONSTEXPR bool recognition_candidate_replace(uint32_t now_ms, uint32_t old_ms,
+    uint16_t new_weight, uint16_t old_weight, bool new_accepted, bool old_accepted);
 
 RD_CONSTEXPR void recognition_quality_reset(recognition_quality_state_t *state);
 RD_CONSTEXPR recognition_quality_result_t recognition_quality_evaluate(

@@ -1,6 +1,8 @@
 #include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #define BACKLIGHT_GPIO GPIO_NUM_48
 
@@ -16,5 +18,15 @@ void app_main(void)
 
     ESP_ERROR_CHECK(gpio_set_level(BACKLIGHT_GPIO, 1));
     ESP_ERROR_CHECK(gpio_config(&config));
-    ESP_LOGI(TAG, "GPIO48 HIGH, physical level=%d", gpio_get_level(BACKLIGHT_GPIO));
+    ESP_LOGI(TAG, "firmware=BACKLIGHT-DIAGNOSTIC-V1; SPI/LVGL disabled");
+    while (true) {
+        ESP_ERROR_CHECK(gpio_set_level(BACKLIGHT_GPIO, 1));
+        ESP_LOGI(TAG, "Backlight ON: GPIO48 readback=%d; hold 3 seconds",
+                 gpio_get_level(BACKLIGHT_GPIO));
+        vTaskDelay(pdMS_TO_TICKS(3000));
+        ESP_ERROR_CHECK(gpio_set_level(BACKLIGHT_GPIO, 0));
+        ESP_LOGI(TAG, "Backlight OFF: GPIO48 readback=%d; hold 3 seconds",
+                 gpio_get_level(BACKLIGHT_GPIO));
+        vTaskDelay(pdMS_TO_TICKS(3000));
+    }
 }

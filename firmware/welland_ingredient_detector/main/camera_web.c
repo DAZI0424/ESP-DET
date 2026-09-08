@@ -16,6 +16,7 @@
 #include "esp_netif.h"
 #include "esp_netif_ip_addr.h"
 #include "esp_wifi.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
@@ -31,6 +32,7 @@
 #define OUTPUT_FRAME_BYTES (OUTPUT_FRAME_SIZE * OUTPUT_FRAME_SIZE * sizeof(uint16_t))
 #define AI_TASK_CORE 1
 #define AI_TASK_STACK_SIZE 12288
+#define ACTIVE_PREVIEW_INTERVAL_MS 125U
 
 _Static_assert(OUTPUT_FRAME_SIZE == INGREDIENT_MODEL_HEIGHT,
                "GUI stream and model input dimensions must match");
@@ -47,15 +49,12 @@ typedef struct {
 } jpeg_buffer_t;
 
 typedef enum {
-    AI_JOB_CAMERA,
     AI_JOB_VALIDATION,
 } ai_job_kind_t;
 
 typedef struct {
     ai_job_kind_t kind;
     SemaphoreHandle_t done;
-    camera_fb_t *frame;
-    uint8_t *output;
     const uint8_t *validation_input;
     ingredient_detection_result_t *result;
     ingredient_performance_t *performance;
@@ -78,6 +77,14 @@ static TaskHandle_t s_ai_task;
 static portMUX_TYPE s_state_lock = portMUX_INITIALIZER_UNLOCKED;
 static ingredient_detection_result_t s_detection;
 
+static SemaphoreHandle_t s_candidate_mutex;
+static SemaphoreHandle_t s_preview_mutex;
+static ingredient_frame_t s_candidate;
+static bool s_candidate_ready;
+static bool s_pipeline_active;
+static uint32_t s_preview_sequence;
+static TaskHandle_t s_capture_task;
+
 static const char INDEX_HTML[] =
     "<!doctype html><html lang=\"zh-CN\"><head>"
     "<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
@@ -93,7 +100,9 @@ static const char INDEX_HTML[] =
     ".capture-tools{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin:-8px 0 16px}"
     ".capture-tools button{border:0;border-radius:10px;padding:9px 13px;background:#2f70e8;color:#fff;"
     "font:inherit;font-weight:700;cursor:pointer}.capture-tools button.secondary{background:#35415e}"
-    ".capture-tools button:disabled{opacity:.55;cursor:wait}.capture-tools small{width:100%;text-align:center;color:#9fb0d3}"
+    ".capture-tools button:disabled{opacity:.55;cursor:wait}.capture-count{display:flex;align-items:center;gap:4px;"
+    "padding:8px 11px;border:1px solid #35415e;border-radius:10px;color:#b8c5e2;background:#10182b}"
+    ".capture-count strong{color:#84f1b7;font-size:18px}.capture-tools small{width:100%;text-align:center;color:#9fb0d3}"
     ".metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}"
     ".metric,.results{background:#0e1528;border:1px solid #2a3554;border-radius:12px;padding:12px}"
     ".metric span{display:block;color:#9fb0d3;font-size:13px}.metric strong{font-size:21px;color:#84f1b7}"
@@ -136,7 +145,9 @@ static const char INDEX_HTML[] =
     "<img id=\"camera\" class=\"camera\" width=\"224\" height=\"224\" alt=\"摄像头实时画面\">"
     "<div class=\"capture-tools\"><button id=\"chooseCaptureFolder\" class=\"secondary\" type=\"button\">选择保存文件夹</button>"
     "<button id=\"toggleDetectionBoxes\" class=\"secondary\" type=\"button\">关闭识别框</button>"
-    "<button id=\"takePhoto\" type=\"button\">拍照保存</button>"
+    "<button id=\"takePhoto\" type=\"button\" title=\"快捷键：空格\">拍照保存（空格）</button>"
+    "<span class=\"capture-count\">拍照次数：<strong id=\"photoCount\">0</strong></span>"
+    "<button id=\"resetPhotoCount\" class=\"secondary\" type=\"button\">次数清零</button>"
     "<small id=\"captureFolder\">尚未选择文件夹</small></div>"
     "<div class=\"metrics\"><div class=\"metric\"><span>识别响应耗时</span>"
     "<strong id=\"latency\">-- ms</strong></div><div class=\"metric\"><span>完整操作耗时</span>"
@@ -167,7 +178,7 @@ static const char INDEX_HTML[] =
     "<p class=\"sub\">主 Wi-Fi：<code>" CONFIG_WELLAND_CAM_STA_SSID
     "</code> · 备用热点：<code>" CONFIG_WELLAND_CAM_AP_SSID "</code></p>"
     "</section></main><script>"
-    "const labels=['苹果','草莓','圣女果','香蕉','鸡蛋','生菜'];"
+    "const labels=['苹果','香蕉','草莓','生菜','鸡蛋','橙子','茄子','黄瓜','胡萝卜','玉米'];"
     "const camera=document.getElementById('camera'),state=document.getElementById('state');"
     "const latency=document.getElementById('latency'),fullLatency=document.getElementById('fullLatency'),count=document.getElementById('count');"
     "const results=document.getElementById('results'),recognition=document.getElementById('recognition');"
@@ -183,12 +194,22 @@ static const char INDEX_HTML[] =
     "const recordsBody=document.getElementById('recordsBody'),downloadExcel=document.getElementById('downloadExcel');"
     "const clearRecords=document.getElementById('clearRecords');"
     "const chooseCaptureFolder=document.getElementById('chooseCaptureFolder'),takePhoto=document.getElementById('takePhoto');"
+    "const photoCount=document.getElementById('photoCount'),resetPhotoCount=document.getElementById('resetPhotoCount');"
     "const toggleDetectionBoxes=document.getElementById('toggleDetectionBoxes'),captureFolder=document.getElementById('captureFolder');"
     "const ingredientOptions=document.getElementById('ingredientOptions'),recordsKey='welland-recognition-records-v1';"
+    "const photoCountKey='welland-photo-count-v1';"
     "let restarting=false,actionBusy=false,sessionArmed=false,sessionTiming=false,sessionToken=0,experienceElapsedMs=0;"
     "let timerStartedAt=0,fullFlowStartedAt=0,fullFlowElapsedMs=0,timerHandle=0;"
     "let captureDirectory=null,captureBusy=false,latestStatus=null,detectionBoxesEnabled=true,overlayBusy=false;"
+    "let photoCountValue=loadPhotoCount();"
     "let records=loadRecords();ingredientOptions.innerHTML=labels.map(x=>'<option value=\"'+x+'\">').join('');"
+    "function loadPhotoCount(){try{const value=Number(localStorage.getItem(photoCountKey)||0);"
+    "return Number.isSafeInteger(value)&&value>=0?value:0}catch(e){return 0}}"
+    "function renderPhotoCount(){photoCount.textContent=String(photoCountValue);"
+    "resetPhotoCount.disabled=captureBusy||photoCountValue===0}"
+    "function savePhotoCount(){try{localStorage.setItem(photoCountKey,String(photoCountValue))}catch(e){"
+    "state.className='state error';state.textContent='拍照次数无法保存：'+e.message}}"
+    "function incrementPhotoCount(){photoCountValue++;savePhotoCount();renderPhotoCount()}renderPhotoCount();"
     "function loadRecords(){try{const value=JSON.parse(localStorage.getItem(recordsKey)||'[]');"
     "return Array.isArray(value)?value:[]}catch(e){return []}}"
     "function saveRecords(){try{localStorage.setItem(recordsKey,JSON.stringify(records))}catch(e){"
@@ -276,14 +297,21 @@ static const char INDEX_HTML[] =
     "await new Promise(resolve=>setTimeout(resolve,700))}catch(e){state.className='state error';"
     "state.textContent='识别框切换失败：'+e.message;renderBoxToggle(detectionBoxesEnabled)}finally{overlayBusy=false;"
     "toggleDetectionBoxes.disabled=false;takePhoto.disabled=captureBusy}};"
-    "chooseCaptureFolder.onclick=()=>pickCaptureFolder();takePhoto.onclick=async()=>{if(captureBusy)return;"
+    "chooseCaptureFolder.onclick=()=>pickCaptureFolder();resetPhotoCount.onclick=()=>{if(captureBusy)return;"
+    "photoCountValue=0;savePhotoCount();renderPhotoCount();state.className='state';state.textContent='拍照次数已清零'};"
+    "takePhoto.onclick=async()=>{if(captureBusy)return;"
     "if('showDirectoryPicker' in window&&!captureDirectory&&!(await pickCaptureFolder()))return;"
     "captureBusy=true;takePhoto.disabled=true;chooseCaptureFolder.disabled=true;toggleDetectionBoxes.disabled=true;const original=takePhoto.textContent;"
+    "renderPhotoCount();"
     "takePhoto.textContent='正在拍照…';try{const name=captureFileName(),blob=await displayedFrameBlob();"
-    "const message=await savePhotoBlob(blob,name);state.className='state';state.textContent=message}"
+    "const message=await savePhotoBlob(blob,name);incrementPhotoCount();state.className='state';state.textContent=message}"
     "catch(e){if(e.name!=='AbortError'){state.className='state error';state.textContent='拍照失败：'+e.message}}"
     "finally{captureBusy=false;takePhoto.disabled=overlayBusy;chooseCaptureFolder.disabled=false;"
-    "toggleDetectionBoxes.disabled=overlayBusy;takePhoto.textContent=original}};"
+    "toggleDetectionBoxes.disabled=overlayBusy;takePhoto.textContent=original;renderPhotoCount()}};"
+    "document.addEventListener('keydown',event=>{if(event.code!=='Space'||event.repeat)return;"
+    "const target=event.target,tag=target&&target.tagName;"
+    "if(target&&target.isContentEditable||tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||tag==='BUTTON')return;"
+    "event.preventDefault();if(!takePhoto.disabled)takePhoto.click()});"
     "if(!('showDirectoryPicker' in window))captureFolder.textContent='使用浏览器下载目录；可开启“下载前询问保存位置”';"
     "function connect(){camera.crossOrigin='anonymous';camera.src=location.protocol+'//'+location.hostname+':81/stream?t='+Date.now()}"
     "camera.onload=()=>{state.className='state';state.textContent='实时画面已连接'};"
@@ -317,12 +345,14 @@ static const char INDEX_HTML[] =
     "recognitionDetail.textContent='移动到秤面不会改变类别；称重完成后点击“称重完成”复位';return}"
     "if(mode==='locked'){recognitionTitle.textContent='识别已锁定';"
     "const trust={high:'高',medium:'中',low:'低'}[s.confidence_level]||'--';"
-    "const reason={single_high:'单帧高置信',two_frame_evidence:'两帧累计证据',three_frame_forced:'三帧强制输出'}[s.lock_reason]||'已锁定';"
+    "const reason={single_high:'单帧高置信',two_frame_evidence:'两帧累计证据',three_frame_evidence:'三帧证据达标'}[s.lock_reason]||'已锁定';"
     "recognitionDetail.textContent=trust+'可信度 · '+reason+' · '+s.effective_inferences+' 个有效推理帧；请移到秤面'}"
+    "else if(mode==='uncertain'){recognitionTitle.textContent='暂不确定，请调整角度';"
+    "recognitionDetail.textContent='三帧证据不足或存在多个目标，尚未锁定；请调整角度或只展示一种食材'}"
     "else if(mode==='confirming'){recognitionTitle.textContent='正在累计识别证据';"
     "recognitionDetail.textContent=s.collected_frames===1?"
     "'已累计第 1 个有效帧，等待内容不同且质量合格的新帧':"
-    "'两帧证据未达提前锁定阈值，下一有效帧将强制输出累计第一名'}"
+    "'两帧证据尚未达标，继续检查同一食材；第三帧仍不确定时不会强制锁定'}"
     "else if(!s.frame_stable){recognitionTitle.textContent='等待展示区域稳定';"
     "recognitionDetail.textContent='背景运动不会启动识别；请把食材稳定展示在中央区域'}"
     "else if(!s.frame_fresh){recognitionTitle.textContent='等待新鲜画面';"
@@ -546,30 +576,6 @@ static bool valid_camera_frame(const camera_fb_t *frame)
     return true;
 }
 
-static void mirror_rgb565_horizontal(uint8_t *data, uint16_t width, uint16_t height)
-{
-#ifdef CONFIG_WELLAND_CAM_HMIRROR
-    const size_t row_bytes = (size_t)width * 2U;
-    for (uint16_t y = 0; y < height; ++y) {
-        uint8_t *row = data + (size_t)y * row_bytes;
-        for (uint16_t left = 0, right = width - 1U; left < right; ++left, --right) {
-            const size_t left_offset = (size_t)left * 2U;
-            const size_t right_offset = (size_t)right * 2U;
-            const uint8_t high = row[left_offset];
-            const uint8_t low = row[left_offset + 1U];
-            row[left_offset] = row[right_offset];
-            row[left_offset + 1U] = row[right_offset + 1U];
-            row[right_offset] = high;
-            row[right_offset + 1U] = low;
-        }
-    }
-#else
-    (void)data;
-    (void)width;
-    (void)height;
-#endif
-}
-
 static camera_fb_t *capture_camera_frame(void)
 {
     camera_fb_t *frame = esp_camera_fb_get();
@@ -577,36 +583,75 @@ static camera_fb_t *capture_camera_frame(void)
         esp_camera_fb_return(frame);
         frame = NULL;
     }
-    if (frame != NULL) {
-        mirror_rgb565_horizontal(frame->buf, frame->width, frame->height);
-    }
     return frame;
+}
+
+static void capture_task(void *argument)
+{
+    (void)argument;
+    uint8_t *pixels = s_output_frame;
+    while (true) {
+        portENTER_CRITICAL(&s_state_lock);
+        const bool active = s_pipeline_active && s_camera_ready;
+        portEXIT_CRITICAL(&s_state_lock);
+        if (!active) { vTaskDelay(pdMS_TO_TICKS(20)); continue; }
+        camera_fb_t *camera = capture_camera_frame();
+        if (camera == NULL) { vTaskDelay(pdMS_TO_TICKS(20)); continue; }
+        ingredient_frame_t candidate;
+        // Driver timestamp is the actual captured frame's timestamp.
+        const uint32_t captured_ms = (uint32_t)(camera->timestamp.tv_sec*1000ULL +
+                                                   camera->timestamp.tv_usec/1000);
+        ingredient_detection_prepare(camera->buf, camera->width, camera->height,
+                                     pixels, captured_ms, &candidate);
+        esp_camera_fb_return(camera);
+        xSemaphoreTake(s_candidate_mutex, portMAX_DELAY);
+        if (!s_candidate_ready || candidate.epoch != s_candidate.epoch ||
+            recognition_candidate_replace(candidate.captured_ms, s_candidate.captured_ms,
+                candidate.quality.weight_permille, s_candidate.quality.weight_permille,
+                candidate.quality.accepted, s_candidate.quality.accepted)) {
+            memcpy(s_output_frame+OUTPUT_FRAME_BYTES, pixels, OUTPUT_FRAME_BYTES);
+            s_candidate = candidate;
+            s_candidate_ready = true;
+        }
+        xSemaphoreGive(s_candidate_mutex);
+        vTaskDelay(1);
+    }
 }
 
 static void ai_task(void *argument)
 {
     (void)argument;
     ai_job_t job;
-    while (xQueueReceive(s_ai_queue, &job, portMAX_DELAY) == pdTRUE) {
-        if (job.kind == AI_JOB_CAMERA) {
-            *job.result = ingredient_detection_run(job.frame->buf,
-                                                   job.frame->width,
-                                                   job.frame->height,
-                                                   job.output,
-                                                   OUTPUT_FRAME_SIZE,
-                                                   OUTPUT_FRAME_SIZE);
-            esp_camera_fb_return(job.frame);
-        } else {
+    uint8_t *pixels = s_output_frame+2*OUTPUT_FRAME_BYTES;
+    while (true) {
+        if (xQueueReceive(s_ai_queue, &job, 0) == pdTRUE) {
             *job.status = ingredient_detection_validate_rgb565_be(
-                job.validation_input,
-                INGREDIENT_MODEL_WIDTH,
-                INGREDIENT_MODEL_HEIGHT,
-                job.result,
-                job.performance);
+                job.validation_input, INGREDIENT_MODEL_WIDTH, INGREDIENT_MODEL_HEIGHT,
+                job.result, job.performance);
+            xSemaphoreGive(job.done);
+            continue;
         }
-        xSemaphoreGive(job.done);
+        ingredient_frame_t candidate;
+        bool ready = false;
+        xSemaphoreTake(s_candidate_mutex, portMAX_DELAY);
+        if (s_candidate_ready) {
+            candidate = s_candidate;
+            memcpy(pixels, s_output_frame+OUTPUT_FRAME_BYTES, OUTPUT_FRAME_BYTES);
+            s_candidate_ready = false;
+            ready = true;
+        }
+        xSemaphoreGive(s_candidate_mutex);
+        if (!ready) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }
+        const ingredient_detection_result_t result = ingredient_detection_run(pixels, &candidate);
+        portENTER_CRITICAL(&s_state_lock);
+        s_detection = result;
+        portEXIT_CRITICAL(&s_state_lock);
+        // Copy only. JPEG and socket writes never hold a producer/AI lock.
+        xSemaphoreTake(s_preview_mutex, portMAX_DELAY);
+        memcpy(s_output_frame+3*OUTPUT_FRAME_BYTES, pixels, OUTPUT_FRAME_BYTES);
+        ++s_preview_sequence;
+        xSemaphoreGive(s_preview_mutex);
     }
-    vTaskDelete(NULL);
 }
 
 static esp_err_t submit_ai_job(const ai_job_t *job)
@@ -617,30 +662,12 @@ static esp_err_t submit_ai_job(const ai_job_t *job)
     return xQueueSend(s_ai_queue, job, portMAX_DELAY) == pdTRUE ? ESP_OK : ESP_FAIL;
 }
 
-static esp_err_t submit_camera_frame(camera_fb_t *frame,
-                                     ingredient_detection_result_t *result,
-                                     SemaphoreHandle_t done)
-{
-    const ai_job_t job = {
-        .kind = AI_JOB_CAMERA,
-        .done = done,
-        .frame = frame,
-        .output = s_output_frame,
-        .result = result,
-    };
-    const esp_err_t err = submit_ai_job(&job);
-    if (err != ESP_OK) {
-        esp_camera_fb_return(frame);
-    }
-    return err;
-}
-
-static bool encode_processed_frame(jpeg_buffer_t *jpeg)
+static bool encode_processed_frame(jpeg_buffer_t *jpeg, uint8_t *pixels)
 {
     jpeg->length = 0;
     jpeg->failed = false;
     camera_fb_t output = {
-        .buf = s_output_frame,
+        .buf = pixels,
         .len = OUTPUT_FRAME_BYTES,
         .width = OUTPUT_FRAME_SIZE,
         .height = OUTPUT_FRAME_SIZE,
@@ -710,6 +737,8 @@ static esp_err_t status_handler(httpd_req_t *request)
         recognition_state = "locked";
     } else if (recognition.state == INGREDIENT_RECOGNITION_WEIGHING) {
         recognition_state = "weighing";
+    } else if (recognition.state == INGREDIENT_RECOGNITION_UNCERTAIN) {
+        recognition_state = "uncertain";
     }
     const char *confidence_level = "none";
     if (recognition.confidence_level == 1) {
@@ -725,7 +754,7 @@ static esp_err_t status_handler(httpd_req_t *request)
     } else if (recognition.lock_reason == 2) {
         lock_reason = "two_frame_evidence";
     } else if (recognition.lock_reason == 3) {
-        lock_reason = "three_frame_forced";
+        lock_reason = "three_frame_evidence";
     }
 
     char chunk[1792];
@@ -767,8 +796,8 @@ static esp_err_t status_handler(httpd_req_t *request)
         detection.sequence,
         recognition_state,
         recognition.inference_active ? "true" : "false",
-        recognition.candidate_category < 7 ? recognition.candidate_category : -1,
-        recognition.candidate_second_category < 7 ?
+        recognition.candidate_category < INGREDIENT_CLASS_COUNT ? recognition.candidate_category : -1,
+        recognition.candidate_second_category < INGREDIENT_CLASS_COUNT ?
             recognition.candidate_second_category : -1,
         (unsigned)recognition.collected_frames,
         (unsigned)recognition.candidate_votes,
@@ -784,11 +813,11 @@ static esp_err_t status_handler(httpd_req_t *request)
         recognition.medium_confidence_locks,
         recognition.low_confidence_locks,
         recognition.completed_locks == 0 ? 0.0f :
-            recognition.high_confidence_locks / (float)recognition.completed_locks,
+            recognition.frame_lock_counts[0] / (float)recognition.completed_locks,
         recognition.completed_locks == 0 ? 0.0f :
-            recognition.medium_confidence_locks / (float)recognition.completed_locks,
+            recognition.frame_lock_counts[1] / (float)recognition.completed_locks,
         recognition.completed_locks == 0 ? 0.0f :
-            recognition.low_confidence_locks / (float)recognition.completed_locks,
+            recognition.frame_lock_counts[2] / (float)recognition.completed_locks,
         recognition.average_lock_inferences,
         recognition.frame_fresh ? "true" : "false",
         recognition.frame_quality_ok ? "true" : "false",
@@ -1088,65 +1117,46 @@ static esp_err_t stream_handler(httpd_req_t *request)
     }
     jpeg.capacity = OUTPUT_FRAME_BYTES;
     jpeg.fixed_capacity = true;
-    esp_err_t err = ESP_OK;
-    SemaphoreHandle_t ai_done = xSemaphoreCreateBinary();
-    if (ai_done == NULL) {
+    uint8_t *preview = heap_caps_malloc(OUTPUT_FRAME_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (preview == NULL) {
         free(jpeg.data);
         xSemaphoreGive(s_stream_mutex);
         return ESP_ERR_NO_MEM;
     }
-
-    ingredient_detection_result_t pending_result = {0};
-    camera_fb_t *frame = NULL;
-    while ((frame = capture_camera_frame()) == NULL) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
-    err = submit_camera_frame(frame, &pending_result, ai_done);
-    bool ai_in_flight = err == ESP_OK;
-
+    xSemaphoreTake(s_candidate_mutex, portMAX_DELAY);
+    s_candidate_ready = false;
+    xSemaphoreGive(s_candidate_mutex);
+    portENTER_CRITICAL(&s_state_lock);
+    s_pipeline_active = true;
+    portEXIT_CRITICAL(&s_state_lock);
+    esp_err_t err = ESP_OK;
+    uint32_t last_sequence = 0;
     while (err == ESP_OK) {
-        camera_fb_t *next_frame = capture_camera_frame();
-        xSemaphoreTake(ai_done, portMAX_DELAY);
-        ai_in_flight = false;
-
-        portENTER_CRITICAL(&s_state_lock);
-        s_detection = pending_result;
-        portEXIT_CRITICAL(&s_state_lock);
-
-        const bool converted = encode_processed_frame(&jpeg);
-        if (next_frame != NULL) {
-            err = submit_camera_frame(next_frame, &pending_result, ai_done);
-            ai_in_flight = err == ESP_OK;
+        bool ready;
+        xSemaphoreTake(s_preview_mutex, portMAX_DELAY);
+        ready = s_preview_sequence != last_sequence;
+        if (ready) {
+            memcpy(preview, s_output_frame+3*OUTPUT_FRAME_BYTES, OUTPUT_FRAME_BYTES);
+            last_sequence = s_preview_sequence;
         }
-        if (err == ESP_OK && !ai_in_flight) {
-            while ((frame = capture_camera_frame()) == NULL) {
-                vTaskDelay(pdMS_TO_TICKS(50));
-            }
-            err = submit_camera_frame(frame, &pending_result, ai_done);
-            ai_in_flight = err == ESP_OK;
-        }
-        if (!converted) {
-            vTaskDelay(pdMS_TO_TICKS(50));
+        xSemaphoreGive(s_preview_mutex);
+        if (!ready) { vTaskDelay(pdMS_TO_TICKS(10)); continue; }
+        if (!encode_processed_frame(&jpeg, preview)) {
+            vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }
-
         char header[64];
-        const int header_length =
-            snprintf(header, sizeof(header), "Content-Type: image/jpeg\r\nContent-Length: %zu\r\n\r\n", jpeg.length);
-        if ((err = httpd_resp_send_chunk(request,
-                                         STREAM_BOUNDARY,
-                                         sizeof(STREAM_BOUNDARY) - 1)) != ESP_OK ||
+        const int header_length = snprintf(header, sizeof(header),
+            "Content-Type: image/jpeg\r\nContent-Length: %zu\r\n\r\n", jpeg.length);
+        if ((err = httpd_resp_send_chunk(request, STREAM_BOUNDARY, sizeof(STREAM_BOUNDARY)-1)) != ESP_OK ||
             (err = httpd_resp_send_chunk(request, header, header_length)) != ESP_OK ||
-            (err = httpd_resp_send_chunk(request,
-                                         (const char *)jpeg.data,
-                                          jpeg.length)) != ESP_OK) {
-            break;
-        }
+            (err = httpd_resp_send_chunk(request, (const char *)jpeg.data, jpeg.length)) != ESP_OK) break;
+        vTaskDelay(pdMS_TO_TICKS(ACTIVE_PREVIEW_INTERVAL_MS));
     }
-    if (ai_in_flight) {
-        xSemaphoreTake(ai_done, portMAX_DELAY);
-    }
-    vSemaphoreDelete(ai_done);
+    portENTER_CRITICAL(&s_state_lock);
+    s_pipeline_active = false;
+    portEXIT_CRITICAL(&s_state_lock);
+    free(preview);
     free(jpeg.data);
     xSemaphoreGive(s_stream_mutex);
     return err;
@@ -1245,13 +1255,23 @@ esp_err_t camera_web_start_pipeline(void)
         return ESP_OK;
     }
     s_output_frame = heap_caps_aligned_alloc(16,
-                                             OUTPUT_FRAME_BYTES,
+                                             4 * OUTPUT_FRAME_BYTES,
                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (s_output_frame == NULL) {
         return ESP_ERR_NO_MEM;
     }
+    s_candidate_mutex = xSemaphoreCreateMutex();
+    s_preview_mutex = xSemaphoreCreateMutex();
+    if (s_candidate_mutex == NULL || s_preview_mutex == NULL) {
+        if (s_candidate_mutex) vSemaphoreDelete(s_candidate_mutex);
+        if (s_preview_mutex) vSemaphoreDelete(s_preview_mutex);
+        free(s_output_frame); s_output_frame = NULL;
+        return ESP_ERR_NO_MEM;
+    }
     s_ai_queue = xQueueCreate(1, sizeof(ai_job_t));
     if (s_ai_queue == NULL) {
+        vSemaphoreDelete(s_candidate_mutex);
+        vSemaphoreDelete(s_preview_mutex);
         free(s_output_frame);
         s_output_frame = NULL;
         return ESP_ERR_NO_MEM;
@@ -1265,11 +1285,22 @@ esp_err_t camera_web_start_pipeline(void)
                                 AI_TASK_CORE) != pdPASS) {
         vQueueDelete(s_ai_queue);
         s_ai_queue = NULL;
+        vSemaphoreDelete(s_candidate_mutex);
+        vSemaphoreDelete(s_preview_mutex);
         free(s_output_frame);
         s_output_frame = NULL;
         return ESP_ERR_NO_MEM;
     }
-    ESP_LOGI(TAG, "pipeline ready: capture/display/Wi-Fi core=0, AI core=%d, camera buffers=2",
+    if (xTaskCreatePinnedToCore(capture_task, "ingredient_capture", 8192,
+                               NULL, 4, &s_capture_task, 0) != pdPASS) {
+        vTaskDelete(s_ai_task);
+        vQueueDelete(s_ai_queue); s_ai_queue = NULL;
+        vSemaphoreDelete(s_candidate_mutex);
+        vSemaphoreDelete(s_preview_mutex);
+        free(s_output_frame); s_output_frame = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+    ESP_LOGI(TAG, "pipeline ready: independent capture/preview core=0, AI core=%d, latest candidate only",
              AI_TASK_CORE);
     return ESP_OK;
 }

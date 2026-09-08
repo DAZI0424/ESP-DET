@@ -25,11 +25,15 @@ import ultralytics.nn.tasks as tasks  # noqa: E402
 
 NAMES = {
     0: "apple",
-    1: "strawberry",
-    2: "cherry tomato",
-    3: "banana",
+    1: "banana",
+    2: "strawberry",
+    3: "lettuce",
     4: "egg",
-    5: "Lettuce",
+    5: "orange",
+    6: "eggplant",
+    7: "cucumber",
+    8: "carrot",
+    9: "corn",
 }
 MODEL_SIZE = 224
 
@@ -122,7 +126,7 @@ def main() -> None:
     parser.add_argument(
         "--weights",
         type=Path,
-        default=ROOT / "runs/detect/welland_v04_yolo_espdet_pico_416_500e_p50/weights/224224.pt",
+        default=ROOT / "runs/detect/welland_v05_yolo_espdet_pico_224_600e_p50/weights/best.pt",
     )
     parser.add_argument("--output", type=Path, default=ROOT / "camera_frame_comparison")
     parser.add_argument("--fp32-conf", type=float, default=0.001)

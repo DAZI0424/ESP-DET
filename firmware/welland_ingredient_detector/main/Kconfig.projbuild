@@ -83,15 +83,14 @@ menu "Welland GC2145 ingredient detector"
     config WELLAND_CAM_XCLK_MHZ
         int "Camera XCLK frequency (MHz)"
         range 10 24
-        default 10
+        default 20
 
     config WELLAND_CAM_HMIRROR
-        bool "Mirror RGB565 camera frames horizontally in software"
+        bool "Mirror camera frames horizontally in the GC2145 sensor"
         default y
         help
-            Swap pixels from left to right on Core 0 after each frame is
-            captured. The GC2145 hardware mirror remains disabled so the
-            software mirror is applied exactly once to preview, AI and capture.
+            Apply horizontal mirroring in the GC2145 sensor so preview, AI and
+            capture have the same orientation without a full-frame software pass.
 
     config WELLAND_CAM_VFLIP
         bool "Flip camera image vertically"
@@ -180,23 +179,13 @@ menu "Welland GC2145 ingredient detector"
             range 1 99
             default 80
 
-        config WELLAND_RECOGNITION_CLASS_STRAWBERRY_PERCENT
-            int "Strawberry minimum normalized evidence (percent)"
-            range 1 99
-            default 80
-
-        config WELLAND_RECOGNITION_CLASS_CHERRY_TOMATO_PERCENT
-            int "Cherry tomato minimum normalized evidence (percent)"
-            range 1 99
-            default 80
-
         config WELLAND_RECOGNITION_CLASS_BANANA_PERCENT
             int "Banana minimum normalized evidence (percent)"
             range 1 99
             default 80
 
-        config WELLAND_RECOGNITION_CLASS_EGG_PERCENT
-            int "Egg minimum normalized evidence (percent)"
+        config WELLAND_RECOGNITION_CLASS_STRAWBERRY_PERCENT
+            int "Strawberry minimum normalized evidence (percent)"
             range 1 99
             default 80
 
@@ -205,8 +194,38 @@ menu "Welland GC2145 ingredient detector"
             range 1 99
             default 80
 
+        config WELLAND_RECOGNITION_CLASS_EGG_PERCENT
+            int "Egg minimum normalized evidence (percent)"
+            range 1 99
+            default 80
+
+        config WELLAND_RECOGNITION_CLASS_ORANGE_PERCENT
+            int "Orange minimum normalized evidence (percent)"
+            range 1 99
+            default 80
+
+        config WELLAND_RECOGNITION_CLASS_EGGPLANT_PERCENT
+            int "Eggplant minimum normalized evidence (percent)"
+            range 1 99
+            default 80
+
+        config WELLAND_RECOGNITION_CLASS_CUCUMBER_PERCENT
+            int "Cucumber minimum normalized evidence (percent)"
+            range 1 99
+            default 80
+
+        config WELLAND_RECOGNITION_CLASS_CARROT_PERCENT
+            int "Carrot minimum normalized evidence (percent)"
+            range 1 99
+            default 80
+
+        config WELLAND_RECOGNITION_CLASS_CORN_PERCENT
+            int "Corn minimum normalized evidence (percent)"
+            range 1 99
+            default 80
+
         config WELLAND_RECOGNITION_MAX_VALID_INFERENCES
-            int "Maximum valid inferences before forced output"
+            int "Maximum valid inferences before accepting or requesting a new view"
             range 3 3
             default 3
 
@@ -346,7 +365,7 @@ menu "Welland GC2145 ingredient detector"
             default 25
 
         config WELLAND_RECOGNITION_SESSION_TIMEOUT_MS
-            int "Unconfirmed recognition session timeout (ms)"
+            int "Recognition evidence session timeout (ms)"
             range 1000 60000
             default 8000
 

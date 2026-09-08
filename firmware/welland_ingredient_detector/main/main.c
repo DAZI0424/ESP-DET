@@ -34,6 +34,10 @@ enum {
     GC2145_PAGE_SELECT = 0xfe,
     GC2145_PAGE_0 = 0x00,
     GC2145_PAGE_1 = 0x01,
+    GC2145_ANALOG_MODE1 = 0x17,
+    GC2145_ANALOG_MODE1_BASE = 0x14,
+    GC2145_HMIRROR_BIT = 0x01,
+    GC2145_VFLIP_BIT = 0x02,
     GC2145_ISP_AUTO_CONTROL = 0x82,
     GC2145_AEC_ENABLE = 0xb6,
     GC2145_AEC_TARGET = 0x13,
@@ -63,7 +67,7 @@ static const camera_config_t CAMERA_CONFIG = {
     .pixel_format = PIXFORMAT_RGB565,
     .frame_size = FRAMESIZE_VGA,
     .jpeg_quality = 12,
-    .fb_count = 2,
+    .fb_count = 1,
     .fb_location = CAMERA_FB_IN_PSRAM,
     .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
     .sccb_i2c_port = -1,
@@ -87,12 +91,6 @@ static esp_err_t gc2145_write_register(sensor_t *sensor,
 
 static esp_err_t configure_gc2145(sensor_t *sensor)
 {
-    /* Horizontal mirroring is applied once in the Core 0 RGB565 capture path. */
-    if (sensor->set_hmirror(sensor, 0) != 0 ||
-        sensor->set_vflip(sensor, WELLAND_CAM_VFLIP_ENABLED) != 0) {
-        return ESP_FAIL;
-    }
-
     ESP_RETURN_ON_ERROR(gc2145_write_register(sensor,
                                                GC2145_PAGE_0,
                                                GC2145_ISP_AUTO_CONTROL,
@@ -121,6 +119,30 @@ static esp_err_t configure_gc2145(sensor_t *sensor)
                                                WELLAND_CAM_AWB_GRAY_WORLD_ENABLED ? 0x80 : 0x00),
                         TAG,
                         "set AWB gray-world mode");
+
+    /*
+     * GC2145 does not reliably return the last value written to Analog Mode 1.
+     * Write both direction bits together from the known sensor-init base value;
+     * two separate read-modify-write calls can otherwise clear each other.
+     */
+    const uint8_t orientation =
+        GC2145_ANALOG_MODE1_BASE |
+        (WELLAND_CAM_HMIRROR_ENABLED ? GC2145_HMIRROR_BIT : 0U) |
+        (WELLAND_CAM_VFLIP_ENABLED ? GC2145_VFLIP_BIT : 0U);
+    ESP_RETURN_ON_ERROR(gc2145_write_register(sensor,
+                                               GC2145_PAGE_0,
+                                               GC2145_ANALOG_MODE1,
+                                               0xff,
+                                               orientation),
+                        TAG,
+                        "set camera orientation");
+    sensor->status.hmirror = WELLAND_CAM_HMIRROR_ENABLED;
+    sensor->status.vflip = WELLAND_CAM_VFLIP_ENABLED;
+    ESP_LOGI(TAG,
+             "GC2145 orientation forced: reg[0x17]=0x%02x, hmirror=%d, vflip=%d",
+             orientation,
+             WELLAND_CAM_HMIRROR_ENABLED,
+             WELLAND_CAM_VFLIP_ENABLED);
     return ESP_OK;
 }
 
@@ -175,10 +197,27 @@ static esp_err_t warm_up_gc2145(void)
 
 void app_main(void)
 {
-    ESP_ERROR_CHECK(camera_web_start());
     camera_web_set_camera_status(false, 0, "initializing");
 
-    const esp_err_t err = esp_camera_init(&CAMERA_CONFIG);
+    esp_err_t err = ingredient_detection_start();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "model init failed: %s (0x%x)", esp_err_to_name(err), err);
+        camera_web_set_camera_status(false, 0, "model_init_failed");
+        const esp_err_t web_err = camera_web_start();
+        if (web_err != ESP_OK) {
+            ESP_LOGE(TAG, "diagnostic GUI init failed: %s (0x%x)",
+                     esp_err_to_name(web_err), web_err);
+        }
+        return;
+    }
+
+    err = camera_web_start();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "GUI init failed: %s (0x%x)", esp_err_to_name(err), err);
+        return;
+    }
+
+    err = esp_camera_init(&CAMERA_CONFIG);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "camera init failed: %s (0x%x)", esp_err_to_name(err), err);
         camera_web_set_camera_status(false, 0, "camera_init_failed");
@@ -193,21 +232,38 @@ void app_main(void)
         camera_web_set_camera_status(false, pid, "unexpected_sensor");
         return;
     }
+    const uint16_t sensor_pid = sensor->id.PID;
 
-    ESP_ERROR_CHECK(configure_gc2145(sensor));
-    camera_web_set_camera_status(false, sensor->id.PID, "awb_aec_warmup");
-    ESP_ERROR_CHECK(warm_up_gc2145());
-    ESP_ERROR_CHECK(ingredient_detection_start());
-    ESP_ERROR_CHECK(camera_web_start_pipeline());
+    err = configure_gc2145(sensor);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "camera configuration failed: %s (0x%x)", esp_err_to_name(err), err);
+        camera_web_set_camera_status(false, sensor_pid, "camera_config_failed");
+        esp_camera_deinit();
+        return;
+    }
+    camera_web_set_camera_status(false, sensor_pid, "awb_aec_warmup");
+    err = warm_up_gc2145();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "camera warm-up failed: %s (0x%x)", esp_err_to_name(err), err);
+        camera_web_set_camera_status(false, sensor_pid, "camera_warmup_failed");
+        esp_camera_deinit();
+        return;
+    }
+    err = camera_web_start_pipeline();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "AI pipeline init failed: %s (0x%x)", esp_err_to_name(err), err);
+        camera_web_set_camera_status(false, sensor_pid, "pipeline_init_failed");
+        return;
+    }
     ESP_LOGI(TAG,
              "GC2145 ready: PID=0x%04x, Core0 capture/display/Wi-Fi + Core1 AI pipeline, "
              "RGB565 640x480 center-crop 480x480 -> 224x224, "
-             "XCLK=%d MHz, software_hmirror=%d, vflip=%d, gray_world=%d, AEC_target=%d",
-             sensor->id.PID,
+             "XCLK=%d MHz, hardware_hmirror=%d, vflip=%d, gray_world=%d, AEC_target=%d",
+             sensor_pid,
              CONFIG_WELLAND_CAM_XCLK_MHZ,
              WELLAND_CAM_HMIRROR_ENABLED,
              WELLAND_CAM_VFLIP_ENABLED,
              WELLAND_CAM_AWB_GRAY_WORLD_ENABLED,
              CONFIG_WELLAND_CAM_AEC_TARGET);
-    camera_web_set_camera_status(true, sensor->id.PID, "ready");
+    camera_web_set_camera_status(true, sensor_pid, "ready");
 }

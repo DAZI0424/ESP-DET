@@ -7,7 +7,7 @@
  * JKC319I002 (FPC1) parameters come from the supplied module specification:
  * GC9B72NA, 200(RGB) x 648, four-wire SPI, 18-bit pixel interface.
  */
-#define BOARD_LCD_PIXEL_CLOCK_HZ       (10 * 1000 * 1000)
+#define BOARD_LCD_PIXEL_CLOCK_HZ       (1 * 1000 * 1000)
 #define BOARD_LCD_CMD_BITS             8
 #define BOARD_LCD_PARAM_BITS           8
 #define BOARD_LCD_BITS_PER_PIXEL       18

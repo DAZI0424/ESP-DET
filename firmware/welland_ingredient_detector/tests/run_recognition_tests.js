@@ -15,4 +15,4 @@ if (compile.status !== 0) {
   process.stderr.write(compile.stderr || '');
   process.exit(compile.status || 1);
 }
-console.log('recognition decision compile-time tests passed: 16/16');
+console.log('recognition decision compile-time tests passed: 25/25');

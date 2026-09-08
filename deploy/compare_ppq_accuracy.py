@@ -54,11 +54,20 @@ class PPQDetectionModel(nn.Module):
 
     def forward(self, images, *args, **kwargs):
         outputs = self.executor(images)
-        features = [
-            torch.cat((outputs[index], outputs[index + 1]), dim=1)
-            for index in range(0, 6, 2)
-        ]
-        return self.decoder._inference(features)
+        box_features = list(outputs[0::2])
+        score_features = list(outputs[1::2])
+        batch_size = images.shape[0]
+        predictions = {
+            "boxes": torch.cat(
+                [feature.view(batch_size, 4, -1) for feature in box_features], dim=-1
+            ),
+            "scores": torch.cat(
+                [feature.view(batch_size, len(self.names), -1) for feature in score_features], dim=-1
+            ),
+            # Ultralytics 8.4 uses the feature-map shapes to construct anchors.
+            "feats": box_features,
+        }
+        return self.decoder._inference(predictions)
 
 
 def sha256(path: Path) -> str:
@@ -180,9 +189,15 @@ def main():
     validation_images = None
     if args.baseline_report:
         baseline_report = json.loads(args.baseline_report.read_text(encoding="utf-8"))
-        validation_section = baseline_report.get("validation", baseline_report)
+        validation_section = baseline_report.get("validation")
+        if isinstance(validation_section, dict) and "aggregate" in validation_section:
+            baseline_metrics = validation_section["aggregate"]
+        elif isinstance(baseline_report.get("best_metrics"), dict):
+            baseline_metrics = baseline_report["best_metrics"]
+        else:
+            baseline_metrics = baseline_report.get("aggregate", baseline_report)
         best_pt_metrics = {
-            key: float(validation_section["aggregate"][key])
+            key: float(baseline_metrics[key])
             for key in METRIC_KEYS
         }
         best_pt_to_int8_drop = {
@@ -195,9 +210,14 @@ def main():
             else None
             for key in METRIC_KEYS
         }
-        dataset_section = baseline_report.get("dataset", {})
+        dataset_section = baseline_report.get("dataset_summary", baseline_report.get("dataset", {}))
         if isinstance(dataset_section, dict):
-            validation_images = dataset_section.get("splits", {}).get("val", {}).get("images")
+            validation_split = dataset_section.get("splits", {}).get("val")
+            validation_images = (
+                validation_split.get("images")
+                if isinstance(validation_split, dict)
+                else validation_split
+            )
         if validation_images is None:
             validation_images = baseline_report.get("validation_images")
     if validation_images is None:

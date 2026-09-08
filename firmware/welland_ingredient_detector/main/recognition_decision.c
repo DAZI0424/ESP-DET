@@ -20,6 +20,9 @@ RD_CONSTEXPR void recognition_quality_reset(recognition_quality_state_t *state)
 {
     size_t index;
     state->has_reference = false;
+    state->has_motion_reference = false;
+    state->previous_tracking_reliable = false;
+    state->previous_compensated_motion = 0;
     state->stable = false;
     state->stable_frames = 0;
     state->scene_change_frames = 0;
@@ -27,6 +30,7 @@ RD_CONSTEXPR void recognition_quality_reset(recognition_quality_state_t *state)
     state->signature = 0;
     for (index = 0; index < sizeof(state->samples); ++index) {
         state->samples[index] = 0;
+        state->previous_delta[index] = 0;
     }
 }
 
@@ -53,6 +57,8 @@ RD_CONSTEXPR recognition_quality_result_t recognition_quality_evaluate(
     uint32_t dark_count = 0;
     uint32_t bright_count = 0;
     uint32_t motion_sum = 0;
+    uint32_t previous_motion_sum = 0;
+    uint64_t previous_signature = UINT64_C(1469598103934665603);
     uint32_t sharpness_sum = 0;
     uint32_t roi_sample_count = 0;
     uint32_t sharpness_count = 0;
@@ -97,13 +103,17 @@ RD_CONSTEXPR recognition_quality_result_t recognition_quality_evaluate(
                 if (source_x >= roi.left && source_x < roi.right &&
                     source_y >= roi.top && source_y < roi.bottom) {
                     motion_sum += absolute_difference;
+                    previous_motion_sum += state->previous_delta[index];
                 }
+                state->previous_delta[index] = (uint8_t)absolute_difference;
             }
             if (source_x >= roi.left && source_x < roi.right &&
                 source_y >= roi.top && source_y < roi.bottom) {
                 luma_sum += luma;
                 dark_count += luma <= config->dark_luma_max;
                 bright_count += luma >= config->bright_luma_min;
+                previous_signature ^= state->samples[index];
+                previous_signature *= UINT64_C(1099511628211);
                 signature ^= luma;
                 signature *= UINT64_C(1099511628211);
                 ++roi_sample_count;
@@ -131,7 +141,7 @@ RD_CONSTEXPR recognition_quality_result_t recognition_quality_evaluate(
     }
 
     result.signature = signature;
-    result.fresh = !state->has_reference || result.roi_changed || signature != state->signature;
+    result.fresh = !state->has_reference || signature != previous_signature;
     if (roi_sample_count == 0) {
         return result;
     }
@@ -143,6 +153,40 @@ RD_CONSTEXPR recognition_quality_result_t recognition_quality_evaluate(
     if (state->has_reference) {
         result.motion_permille = clamp_u16(
             (motion_sum * QUALITY_SCALE) / (roi_sample_count * 255U));
+        result.raw_motion_permille = result.motion_permille;
+        // Fixed search on sparse luma: reject ambiguous/repeating textures and
+        // boundary winners rather than inventing a displacement.
+        const int radius = RECOGNITION_MOTION_SEARCH_RADIUS;
+        uint32_t best = UINT32_MAX, second = UINT32_MAX, count = 0;
+        int best_dx = 0, best_dy = 0;
+        for (int dy = -radius; dy <= radius; ++dy) {
+            for (int dx = -radius; dx <= radius; ++dx) {
+                uint32_t sad = 0, n = 0;
+                for (int gy = radius; gy < RECOGNITION_QUALITY_GRID-radius; gy += 2) {
+                    for (int gx = radius; gx < RECOGNITION_QUALITY_GRID-radius; gx += 2) {
+                        const int px = gx * width / RECOGNITION_QUALITY_GRID;
+                        const int py = gy * height / RECOGNITION_QUALITY_GRID;
+                        if (px < roi.left || px >= roi.right || py < roi.top || py >= roi.bottom) continue;
+                        int d = current[(gy+dy)*RECOGNITION_QUALITY_GRID+gx+dx] -
+                            state->samples[gy*RECOGNITION_QUALITY_GRID+gx];
+                        sad += d < 0 ? -d : d;
+                        ++n;
+                    }
+                }
+                if (n < 16) continue;
+                if (sad < best) {
+                    second = best; best = sad; best_dx = dx; best_dy = dy; count = n;
+                } else if (sad < second) second = sad;
+            }
+        }
+        if (count >= 16 && best_dx > -radius && best_dx < radius &&
+            best_dy > -radius && best_dy < radius && second > best + 2U*count &&
+            best * QUALITY_SCALE <= count * 255U * config->motion_max_permille) {
+            result.tracking_reliable = true;
+            result.displacement_x = best_dx * (int)width / RECOGNITION_QUALITY_GRID;
+            result.displacement_y = best_dy * (int)height / RECOGNITION_QUALITY_GRID;
+            result.motion_permille = (uint16_t)(best * QUALITY_SCALE / (count * 255U));
+        }
         result.changed_permille = (uint16_t)((changed_count * QUALITY_SCALE) /
                                              full_sample_count);
         if (result.changed_permille >= config->scene_change_changed_permille &&
@@ -157,9 +201,24 @@ RD_CONSTEXPR recognition_quality_result_t recognition_quality_evaluate(
             config->scene_change_required_frames;
     }
 
+    const int roi_dx = (int)roi.left - state->roi.left;
+    const int roi_dy = (int)roi.top - state->roi.top;
+    const bool translated_roi = result.roi_changed && result.tracking_reliable &&
+        state->previous_tracking_reliable &&
+        roi.right-roi.left == state->roi.right-state->roi.left &&
+        roi.bottom-roi.top == state->roi.bottom-state->roi.top &&
+        roi_dx*roi_dx <= (int)(width*width*9U/(RECOGNITION_QUALITY_GRID*RECOGNITION_QUALITY_GRID)) &&
+        roi_dy*roi_dy <= (int)(height*height*9U/(RECOGNITION_QUALITY_GRID*RECOGNITION_QUALITY_GRID));
     if (!state->has_reference || result.roi_changed) {
         state->stable = false;
-        state->stable_frames = 0;
+        // Recheck the previous interval inside the NEW ROI; do not inherit
+        // stability measured over a different region.
+        state->stable_frames = state->has_motion_reference &&
+            (previous_motion_sum * QUALITY_SCALE) / (roi_sample_count * 255U) <=
+                config->motion_max_permille ? 1 : 0;
+        if (translated_roi && state->previous_compensated_motion <= config->motion_max_permille) {
+            state->stable_frames = 1;
+        }
     }
     if (result.scene_change || result.motion_permille > config->motion_exit_permille) {
         state->stable = false;
@@ -177,8 +236,11 @@ RD_CONSTEXPR recognition_quality_result_t recognition_quality_evaluate(
     for (x = 0; x < full_sample_count; ++x) {
         state->samples[x] = current[x];
     }
+    state->previous_tracking_reliable = result.tracking_reliable;
+    state->previous_compensated_motion = result.motion_permille;
     state->signature = signature;
     state->roi = roi;
+    state->has_motion_reference = state->has_reference;
     state->has_reference = true;
 
     if (!result.fresh || !result.stable || result.scene_change ||
@@ -295,6 +357,7 @@ RD_CONSTEXPR static void clear_evidence(recognition_decision_state_t *state)
     state->has_target = false;
     state->last_sequence = 0;
     state->session_started_ms = 0;
+    state->last_seen_ms = 0;
     state->candidate_category = UINT8_MAX;
     state->candidate_second_category = UINT8_MAX;
     state->candidate_score = 0.0f;
@@ -338,6 +401,9 @@ RD_CONSTEXPR void recognition_decision_init(recognition_decision_state_t *state)
     for (size_t index = 0; index < RECOGNITION_CONFIDENCE_COUNT; ++index) {
         state->confidence_lock_counts[index] = 0;
     }
+    for (size_t index = 0; index < RECOGNITION_MAX_EVIDENCE_FRAMES; ++index) {
+        state->frame_lock_counts[index] = 0;
+    }
     reset_session(state);
 }
 
@@ -370,10 +436,11 @@ RD_CONSTEXPR recognition_decision_event_t recognition_decision_tick(
     const recognition_decision_config_t *config,
     uint32_t now_ms)
 {
-    if ((state->state == RECOGNITION_DECISION_SEARCHING ||
-         state->state == RECOGNITION_DECISION_CONFIRMING) &&
-        state->session_started_ms != 0 &&
-        elapsed_ms(now_ms, state->session_started_ms) >= config->session_timeout_ms) {
+    if (state->state == RECOGNITION_DECISION_LOCKED ||
+        state->state == RECOGNITION_DECISION_WEIGHING) return RECOGNITION_EVENT_NONE;
+    if ((state->has_target && elapsed_ms(now_ms, state->last_seen_ms) >= RECOGNITION_TARGET_LOST_MS) ||
+        (state->session_started_ms != 0 &&
+         elapsed_ms(now_ms, state->session_started_ms) >= config->session_timeout_ms)) {
         clear_evidence(state);
         state->state = RECOGNITION_DECISION_SEARCHING;
         return RECOGNITION_EVENT_SESSION_TIMEOUT;
@@ -392,7 +459,7 @@ RD_CONSTEXPR recognition_decision_event_t recognition_decision_bad_frame(
         state->state == RECOGNITION_DECISION_WEIGHING) {
         return event;
     }
-    if (scene_change) {
+    if (scene_change && state->has_target) {
         clear_evidence(state);
         state->state = RECOGNITION_DECISION_SEARCHING;
         return RECOGNITION_EVENT_EVIDENCE_RESET;
@@ -413,11 +480,6 @@ RD_CONSTEXPR recognition_decision_event_t recognition_decision_target_missing(
     if (state->missing_valid_frames < UINT8_MAX) {
         ++state->missing_valid_frames;
     }
-    if (state->missing_valid_frames >= config->target_missing_valid_frames) {
-        clear_evidence(state);
-        state->state = RECOGNITION_DECISION_SEARCHING;
-        return RECOGNITION_EVENT_EVIDENCE_RESET;
-    }
     return event;
 }
 
@@ -426,6 +488,34 @@ RD_CONSTEXPR static uint32_t box_area(const recognition_box_t *box)
     const int32_t width = (int32_t)box->right - box->left;
     const int32_t height = (int32_t)box->bottom - box->top;
     return width > 0 && height > 0 ? (uint32_t)(width * height) : 0;
+}
+
+RD_CONSTEXPR bool recognition_candidate_replace(uint32_t now_ms, uint32_t old_ms,
+    uint16_t new_weight, uint16_t old_weight, bool new_accepted, bool old_accepted)
+{
+    if (elapsed_ms(now_ms, old_ms) >= RECOGNITION_CANDIDATE_MAX_AGE_MS) return true;
+    if (new_accepted != old_accepted) return new_accepted;
+    return new_weight >= old_weight || elapsed_ms(now_ms, old_ms) >= 150U;
+}
+
+RD_CONSTEXPR bool recognition_boxes_associate(const recognition_box_t *previous,
+    const recognition_box_t *current, const recognition_decision_config_t *config)
+{
+    const uint32_t a = box_area(previous), b = box_area(current);
+    if (a == 0 || b == 0 || b * QUALITY_SCALE < a * config->consistency_min_area_ratio_permille ||
+        b * QUALITY_SCALE > a * config->consistency_max_area_ratio_permille) return false;
+    const int left = previous->left > current->left ? previous->left : current->left;
+    const int top = previous->top > current->top ? previous->top : current->top;
+    const int right = previous->right < current->right ? previous->right : current->right;
+    const int bottom = previous->bottom < current->bottom ? previous->bottom : current->bottom;
+    const uint32_t intersection = right > left && bottom > top ? (right-left)*(bottom-top) : 0;
+    int dx = previous->left + previous->right - current->left - current->right;
+    int dy = previous->top + previous->bottom - current->top - current->bottom;
+    if (dx < 0) dx = -dx;
+    if (dy < 0) dy = -dy;
+    return intersection * QUALITY_SCALE >= (a+b-intersection) * config->consistency_min_iou_permille &&
+        (uint32_t)dx * QUALITY_SCALE <= 2U * RECOGNITION_FRAME_WIDTH * config->consistency_max_center_shift_permille &&
+        (uint32_t)dy * QUALITY_SCALE <= 2U * RECOGNITION_FRAME_HEIGHT * config->consistency_max_center_shift_permille;
 }
 
 RD_CONSTEXPR static bool box_reasonable(const recognition_box_t *box,
@@ -444,45 +534,6 @@ RD_CONSTEXPR static bool box_reasonable(const recognition_box_t *box,
     }
     return short_side != 0 && long_side * QUALITY_SCALE <=
         short_side * config->box_max_aspect_permille;
-}
-
-RD_CONSTEXPR static bool box_consistent(const recognition_box_t *previous,
-                           const recognition_box_t *current,
-                           const recognition_decision_config_t *config)
-{
-    const uint32_t previous_area = box_area(previous);
-    const uint32_t current_area = box_area(current);
-    const int32_t inter_left = previous->left > current->left ? previous->left : current->left;
-    const int32_t inter_top = previous->top > current->top ? previous->top : current->top;
-    const int32_t inter_right = previous->right < current->right ? previous->right : current->right;
-    const int32_t inter_bottom = previous->bottom < current->bottom ? previous->bottom : current->bottom;
-    const uint32_t inter_width = inter_right > inter_left ? (uint32_t)(inter_right - inter_left) : 0;
-    const uint32_t inter_height = inter_bottom > inter_top ? (uint32_t)(inter_bottom - inter_top) : 0;
-    const uint32_t intersection = inter_width * inter_height;
-    const uint32_t union_area = previous_area + current_area - intersection;
-    const uint32_t iou_permille = union_area == 0 ? 0 :
-        (intersection * QUALITY_SCALE) / union_area;
-    const int32_t previous_cx = previous->left + previous->right;
-    const int32_t previous_cy = previous->top + previous->bottom;
-    const int32_t current_cx = current->left + current->right;
-    const int32_t current_cy = current->top + current->bottom;
-    const uint32_t dx = (uint32_t)(previous_cx > current_cx ?
-        previous_cx - current_cx : current_cx - previous_cx);
-    const uint32_t dy = (uint32_t)(previous_cy > current_cy ?
-        previous_cy - current_cy : current_cy - previous_cy);
-    const uint32_t center_shift_permille =
-        ((dx > dy ? dx : dy) * QUALITY_SCALE) /
-        (2U * (RECOGNITION_FRAME_WIDTH > RECOGNITION_FRAME_HEIGHT ?
-                   RECOGNITION_FRAME_WIDTH : RECOGNITION_FRAME_HEIGHT));
-    if (previous_area == 0 || current_area == 0 ||
-        iou_permille < config->consistency_min_iou_permille ||
-        center_shift_permille > config->consistency_max_center_shift_permille) {
-        return false;
-    }
-    return current_area * QUALITY_SCALE >=
-               previous_area * config->consistency_min_area_ratio_permille &&
-           current_area * QUALITY_SCALE <=
-               previous_area * config->consistency_max_area_ratio_permille;
 }
 
 RD_CONSTEXPR static void find_top_two(const float *scores, uint8_t *top1, uint8_t *top2)
@@ -519,12 +570,32 @@ RD_CONSTEXPR static recognition_decision_event_t lock_category(
     state->lock_reason = reason;
     state->lock_started_ms = now_ms == 0 ? 1 : now_ms;
     ++state->completed_locks;
+    ++state->frame_lock_counts[state->valid_inferences - 1];
     state->total_lock_inferences += state->valid_inferences;
     if (confidence > RECOGNITION_CONFIDENCE_NONE &&
         confidence < RECOGNITION_CONFIDENCE_COUNT) {
         ++state->confidence_lock_counts[confidence];
     }
     return RECOGNITION_EVENT_LOCKED;
+}
+
+RD_CONSTEXPR static recognition_confidence_t classify_weighted_confidence(
+    const recognition_decision_config_t *config,
+    uint8_t category,
+    float score,
+    float margin)
+{
+    if (score >= config->single_high_threshold &&
+        score >= config->class_accept_thresholds[category] &&
+        margin >= config->single_margin_threshold) {
+        return RECOGNITION_CONFIDENCE_HIGH;
+    }
+    if (score >= config->multi_accept_evidence &&
+        score >= config->class_accept_thresholds[category] &&
+        margin >= config->multi_margin_evidence) {
+        return RECOGNITION_CONFIDENCE_MEDIUM;
+    }
+    return RECOGNITION_CONFIDENCE_LOW;
 }
 
 RD_CONSTEXPR recognition_decision_event_t recognition_decision_observe(
@@ -556,8 +627,7 @@ RD_CONSTEXPR recognition_decision_event_t recognition_decision_observe(
     }
 
     maximum_inferences = config->max_valid_inferences;
-    if (maximum_inferences == 0 ||
-        maximum_inferences > RECOGNITION_MAX_EVIDENCE_FRAMES) {
+    if (maximum_inferences == 0 || maximum_inferences > RECOGNITION_MAX_EVIDENCE_FRAMES) {
         maximum_inferences = RECOGNITION_MAX_EVIDENCE_FRAMES;
     }
     if (state->valid_inferences >= maximum_inferences ||
@@ -572,29 +642,31 @@ RD_CONSTEXPR recognition_decision_event_t recognition_decision_observe(
     frame_margin = observation->class_scores[frame_top1] -
         (frame_top2 == UINT8_MAX ? 0.0f : observation->class_scores[frame_top2]);
     if (!box_reasonable(&observation->target_box, config)) {
+        /* Skip this inference without restarting the active evidence window. */
+        return initial_event;
+    }
+
+    if (state->has_target && !recognition_boxes_associate(
+            observation->has_prediction ? &observation->predicted_box : &state->last_box,
+            &observation->target_box, config)) {
         clear_evidence(state);
         state->state = RECOGNITION_DECISION_SEARCHING;
         return RECOGNITION_EVENT_EVIDENCE_RESET;
     }
-    if (state->has_target &&
-        !box_consistent(&state->last_box, &observation->target_box, config)) {
-        clear_evidence(state);
-        state->state = RECOGNITION_DECISION_SEARCHING;
-        initial_event = RECOGNITION_EVENT_EVIDENCE_RESET;
-    }
-    if (state->has_target && state->valid_inferences > 0 &&
-        state->candidate_category != frame_top1 &&
+    if (state->has_target && frame_top1 != state->candidate_category &&
         observation->class_scores[frame_top1] >= config->obvious_switch_threshold &&
-        frame_margin >= config->obvious_switch_margin) {
+        frame_margin >= config->obvious_switch_margin &&
+        state->candidate_score >= config->multi_accept_evidence) {
         clear_evidence(state);
         state->state = RECOGNITION_DECISION_SEARCHING;
-        initial_event = RECOGNITION_EVENT_EVIDENCE_RESET;
+        return RECOGNITION_EVENT_EVIDENCE_RESET;
     }
 
     if (state->session_started_ms == 0) {
         state->session_started_ms = observation->now_ms == 0 ? 1 : observation->now_ms;
     }
     state->last_sequence = observation->sequence;
+    state->last_seen_ms = observation->now_ms;
     state->last_box = observation->target_box;
     state->has_target = true;
     state->missing_valid_frames = 0;
@@ -637,7 +709,8 @@ RD_CONSTEXPR recognition_decision_event_t recognition_decision_observe(
         (evidence_top2 == UINT8_MAX ? 0.0f : state->normalized_evidence[evidence_top2]);
     state->candidate_margin = evidence_margin;
 
-    if (state->valid_inferences == 1 &&
+    if (!observation->ambiguous && state->valid_inferences == 1 &&
+        observation->quality_weight_permille >= QUALITY_SCALE * 85U / 100U &&
         observation->class_scores[frame_top1] >= config->single_high_threshold &&
         observation->class_scores[frame_top1] >= config->class_accept_thresholds[frame_top1] &&
         frame_margin >= config->single_margin_threshold) {
@@ -650,37 +723,30 @@ RD_CONSTEXPR recognition_decision_event_t recognition_decision_observe(
                              RECOGNITION_LOCK_REASON_SINGLE_HIGH);
     }
 
-    if (state->valid_inferences == 2 &&
+    if (!observation->ambiguous && state->valid_inferences >= 2 &&
+        state->frames[state->valid_inferences - 2].top1_category == frame_top1 &&
+        frame_top1 == evidence_top1 &&
         state->normalized_evidence[evidence_top1] >= config->multi_accept_evidence &&
-        evidence_margin >= config->multi_margin_evidence &&
         state->normalized_evidence[evidence_top1] >=
-            config->class_accept_thresholds[evidence_top1]) {
+            config->class_accept_thresholds[evidence_top1] &&
+        evidence_margin >= config->multi_margin_evidence) {
         return lock_category(state,
                              evidence_top1,
                              state->normalized_evidence[evidence_top1],
-                             &state->last_box,
+                             &observation->target_box,
                              observation->now_ms,
-                             RECOGNITION_CONFIDENCE_MEDIUM,
-                             RECOGNITION_LOCK_REASON_TWO_FRAME_EVIDENCE);
+                             classify_weighted_confidence(
+                                 config,
+                                 evidence_top1,
+                                 state->normalized_evidence[evidence_top1],
+                                 evidence_margin),
+                             state->valid_inferences == 2 ?
+                                 RECOGNITION_LOCK_REASON_TWO_FRAME_EVIDENCE :
+                                 RECOGNITION_LOCK_REASON_THREE_FRAME_EVIDENCE);
     }
 
     if (state->valid_inferences >= maximum_inferences) {
-        recognition_box_t winner_box = state->last_box;
-        uint8_t frame_index = state->valid_inferences;
-        while (frame_index > 0) {
-            --frame_index;
-            if (state->frames[frame_index].top1_category == evidence_top1) {
-                winner_box = state->frames[frame_index].target_box;
-                break;
-            }
-        }
-        return lock_category(state,
-                             evidence_top1,
-                             state->normalized_evidence[evidence_top1],
-                             &winner_box,
-                             observation->now_ms,
-                             RECOGNITION_CONFIDENCE_LOW,
-                             RECOGNITION_LOCK_REASON_THREE_FRAME_FORCED);
+        state->state = RECOGNITION_DECISION_UNCERTAIN;
     }
     return initial_event;
 }

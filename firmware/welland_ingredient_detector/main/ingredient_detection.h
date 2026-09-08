@@ -5,12 +5,14 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "recognition_decision.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define INGREDIENT_MAX_DETECTIONS 7
+#define INGREDIENT_CLASS_COUNT 10
+#define INGREDIENT_MAX_DETECTIONS INGREDIENT_CLASS_COUNT
 #define INGREDIENT_MODEL_WIDTH 224
 #define INGREDIENT_MODEL_HEIGHT 224
 
@@ -34,6 +36,7 @@ typedef enum {
     INGREDIENT_RECOGNITION_CONFIRMING,
     INGREDIENT_RECOGNITION_LOCKED,
     INGREDIENT_RECOGNITION_WEIGHING,
+    INGREDIENT_RECOGNITION_UNCERTAIN,
 } ingredient_recognition_state_t;
 
 typedef struct {
@@ -54,6 +57,7 @@ typedef struct {
     uint32_t high_confidence_locks;
     uint32_t medium_confidence_locks;
     uint32_t low_confidence_locks;
+    uint32_t frame_lock_counts[3];
     float average_lock_inferences;
     uint32_t quality_us;
     uint32_t preprocess_us;
@@ -103,12 +107,22 @@ typedef struct {
     size_t psram_largest_after;
 } ingredient_performance_t;
 
-ingredient_detection_result_t ingredient_detection_run(const uint8_t *source_rgb565_be,
-                                                        uint16_t source_width,
-                                                        uint16_t source_height,
-                                                        uint8_t *output_rgb565_be,
-                                                        uint16_t output_width,
-                                                        uint16_t output_height);
+typedef struct {
+    uint32_t captured_ms;
+    uint32_t epoch;
+    uint32_t quality_us;
+    int32_t motion_x;
+    int32_t motion_y;
+    bool has_target;
+    recognition_box_t predicted_box;
+    recognition_quality_result_t quality;
+} ingredient_frame_t;
+
+// Single capture producer; source can be returned immediately after this call.
+void ingredient_detection_prepare(const uint8_t *source, uint16_t width,
+    uint16_t height, uint8_t *resized, uint32_t captured_ms, ingredient_frame_t *frame);
+ingredient_detection_result_t ingredient_detection_run(uint8_t *resized,
+    const ingredient_frame_t *frame);
 
 esp_err_t ingredient_detection_restart(void);
 esp_err_t ingredient_detection_cancel(void);

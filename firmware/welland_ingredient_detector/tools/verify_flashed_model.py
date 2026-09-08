@@ -14,7 +14,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_MODEL = (
     PROJECT_DIR
     / "models"
-    / "welland_v04_yolo_espdet_pico_224_esp32s3_int8_model0_int16.espdl"
+    / "welland_v05_yolo_espdet_pico_224_esp32s3_int8_model0_int16.espdl"
 )
 DEFAULT_APP = PROJECT_DIR / "build" / "welland_ingredient_detector.bin"
 DEFAULT_READBACK = PROJECT_DIR / "build" / "app_readback.bin"
